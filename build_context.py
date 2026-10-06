@@ -13,7 +13,7 @@ through an SSH local forward (compute only), and Jev eligibility from `jev-bound
 Incremental: a note whose sha is unchanged keeps its rows and embeddings.
 v3 is fenced (V4-9) and never indexed.
 """
-import argparse, glob, hashlib, json, os, re, subprocess, sys, time, urllib.request
+import argparse, glob, hashlib, json, os, re, shutil, subprocess, sys, time, urllib.request
 
 import turso
 
@@ -68,7 +68,7 @@ def jev_eligible(rel_paths):
     subprocess.run(["scp", "-q", local, f"desktop-native-tail:{remote}"], check=True, timeout=60)
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", "desktop-native-tail", "python3", remote],
                        input=json.dumps(rel_paths).encode(), capture_output=True, timeout=1800)
-    if r.returncode != 0:
+    if r.returncode != 0:  # noqa
         sys.exit(f"boundary check failed rc={r.returncode}: {r.stderr.decode()[:300]}")
     return json.loads(r.stdout)
 
@@ -79,12 +79,25 @@ def main():
     ap.add_argument("--no-embed", action="store_true")
     a = ap.parse_args()
     os.makedirs(os.path.dirname(DB), exist_ok=True)
-    con = turso.connect(DB, experimental_features="index_method")
+    # Publish by generation: build into a private copy, checkpoint it, then atomically rename over the
+    # live file. Readers (habitat-ctx, the read-only MCP server) never see a half-built DB, and the
+    # live file never has a writer (tursodb 0.8.1 does not coordinate WAL across processes by default).
+    work = DB + ".building"
+    for ext in ("", "-wal", "-shm"):
+        if os.path.exists(work + ext):
+            os.remove(work + ext)
+    if os.path.exists(DB):
+        shutil.copy2(DB, work)
+        if os.path.exists(DB + "-wal") and os.path.getsize(DB + "-wal") > 0:
+            shutil.copy2(DB + "-wal", work + "-wal")
+    con = turso.connect(work, experimental_features="index_method")
     cur = con.cursor()
     cur.execute("create table if not exists notes(path text primary key, vault text, sha text, mtime real)")
     cur.execute("create table if not exists sections(id integer primary key, vault text, path text, heading text,"
                 " body text, sha text, jev_ok integer, emb blob)")
     cur.execute("create table if not exists meta(key text primary key, value text)")
+    cur.execute("drop table if exists prime_receipts")  # receipts live in receipts.db (single writer: habitat-ctx)
+    cur.execute("delete from meta where key='live_probe'")
     con.commit()
     have = dict(cur.execute("select path, sha from notes").fetchall())
     files = [f for f in glob.glob(os.path.join(SNAP, "*.vault", "**", "*.md"), recursive=True)
@@ -129,6 +142,20 @@ def main():
         cur.execute("insert or replace into meta values(?,?)", (k, v))
     con.commit()
     n, e, j = cur.execute("select count(*), count(emb), sum(jev_ok) from sections").fetchone()
+    assert cur.execute("pragma integrity_check").fetchone()[0] == "ok", "integrity_check failed; not publishing"
+    cur.execute("pragma wal_checkpoint(TRUNCATE)")
+    con.close()
+    for ext in ("-wal", "-shm"):
+        if os.path.exists(work + ext) and os.path.getsize(work + ext) == 0:
+            os.remove(work + ext)
+    if os.path.exists(work + "-wal"):
+        sys.exit("checkpoint left WAL frames; not publishing")
+    os.replace(work, DB)  # atomic publish
+    # A WAL beside the live name belongs to the previous generation (the live file has no writer), and
+    # would be replayed over the new file by the next opener. Remove it as part of publishing.
+    for ext in ("-wal", "-shm"):
+        if os.path.exists(DB + ext):
+            os.remove(DB + ext)
     print(f"sections={n} embedded={e} jev_ok={j} new_rows={len(rows)} embedded_now={len(todo)} in {time.time()-t0:.0f}s")
 
 

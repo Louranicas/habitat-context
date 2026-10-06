@@ -24,15 +24,28 @@ RRF_K = 60
 
 
 def con():
+    """Context DB: READ ONLY by convention (pyturso has no read-only mode). Only build_context.py writes,
+    and only to an unpublished copy that is atomically renamed into place."""
     if not os.path.exists(DB):  # never create an empty DB from a startup hook
         sys.exit(0)
-    c = turso.connect(DB, experimental_features="index_method")
+    return turso.connect(DB, experimental_features="index_method")
+
+
+RDB = os.path.join(os.path.dirname(DB), "receipts.db")
+
+
+def rcon():
+    """Receipts and the live-probe cache: habitat-ctx is this file's single writer."""
+    c = turso.connect(RDB)
     c.execute("create table if not exists prime_receipts(id integer primary key, ts text, kind text,"
               " query text, packet_sha text, items text)")
+    c.execute("create table if not exists cache(key text primary key, value text)")
+    c.commit()
     return c
 
 
-def receipt(c, kind, query, text, items):
+def receipt(_c, kind, query, text, items):
+    c = rcon()
     c.execute("insert into prime_receipts(ts,kind,query,packet_sha,items) values(?,?,?,?,?)",
               (time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind, query,
                hashlib.sha256(text.encode()).hexdigest()[:16], json.dumps(items)))
@@ -167,11 +180,12 @@ def live_probe(c, timeout=4):
                            input=PROBE, capture_output=True, text=True, timeout=timeout)
         data = json.loads(r.stdout.strip().splitlines()[-1])
         data["at"] = time.strftime("%H:%M")
-        c.execute("insert or replace into meta values('live_probe', ?)", (json.dumps(data),))
-        c.commit()
+        r = rcon()
+        r.execute("insert or replace into cache values('live_probe', ?)", (json.dumps(data),))
+        r.commit()
         return data, "live"
     except Exception:
-        row = c.execute("select value from meta where key='live_probe'").fetchone()
+        row = rcon().execute("select value from cache where key='live_probe'").fetchone()
         return (json.loads(row[0]), "cached") if row else (None, "unavailable")
 
 
@@ -224,7 +238,7 @@ def stats():
     print(dict(c.execute("select key, value from meta").fetchall()))
     for v, n, e, j in c.execute("select vault, count(*), count(emb), sum(jev_ok) from sections group by vault order by 2 desc"):
         print(f"  {v:38s} sections={n:6d} embedded={e:6d} jev_ok={j}")
-    print("receipts:", c.execute("select kind, count(*) from prime_receipts group by kind").fetchall())
+    print("receipts:", rcon().execute("select kind, count(*) from prime_receipts group by kind").fetchall())
 
 
 if __name__ == "__main__":
