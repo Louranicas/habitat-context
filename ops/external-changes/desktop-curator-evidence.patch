@@ -1,0 +1,13 @@
+--- /mnt/storage-10tb/omarchy-rust-implementation/tools/curator/curator.py.bak-20261007-evidence	2026-10-04 08:50:52.152428796 +1100
++++ /mnt/storage-10tb/omarchy-rust-implementation/tools/curator/curator.py	2026-10-07 00:12:38.821392566 +1100
+@@ -27,7 +27,9 @@
+ PLAN_PATHS = ('docs/traceability.json', 'docs/module-map.json', 'docs/ultramap.svg',
+               'docs/plugin-atlas.md', 'docs/quality-security.md', 'docs/deployment-atlas.md',
+               'docs/team-and-control.md', 'docs/curation-design.md')
+-EXCLUDED = {'.git', 'target', 'receipts', '.curation', '.candidates', '__pycache__'}
++# 'evidence' (2026-10-07): generated test receipts such as installer/evidence/ (about 4,560 files) pushed the
++# candidate past MAX_FILES; like 'target' and 'receipts' they are outputs, not source. The bound is unchanged.
++EXCLUDED = {'.git', 'target', 'receipts', 'evidence', '.curation', '.candidates', '__pycache__'}
+ SUFFIXES = {'.rs', '.toml', '.lock', '.json', '.qml', '.js', '.py', '.sh',
+             '.lua', '.service', '.desktop', '.socket', '.timer', '.svg', '.txt', '.md'}
+ 

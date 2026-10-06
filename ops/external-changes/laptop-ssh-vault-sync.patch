@@ -1,0 +1,31 @@
+--- /home/louranicas/.local/bin/ssh-vault-sync.bak-20261007-fallback	2026-10-04 08:27:32.379952375 +1100
++++ /home/louranicas/.local/bin/ssh-vault-sync	2026-10-07 00:09:16.099687037 +1100
+@@ -12,15 +12,25 @@
+   *) printf 'Usage: ssh-vault-sync [--dry-run]\n' >&2; exit 2 ;;
+ esac
+ [[ $# -le 1 ]] || exit 2
+-timeout 30 tailscale ssh louranicas@omarchy-remote -o BatchMode=yes -S none 'test -s /home/louranicas/SSH.vault/Home.md && test -s /home/louranicas/SSH.vault/AGENTS.md' </dev/null
++check='test -s /home/louranicas/SSH.vault/Home.md && test -s /home/louranicas/SSH.vault/AGENTS.md'
++# Primary transport: Tailscale SSH. Its check mode can demand browser re-authentication, which a timer
++# cannot answer, so fall back to the native-SSH contingency (SSH.vault "Native SSH contingency").
++if timeout 15 tailscale ssh louranicas@omarchy-remote -o BatchMode=yes -S none "$check" </dev/null >/dev/null 2>&1; then
++  src=omarchy-remote:/home/louranicas/SSH.vault/; rsh="$HOME/.local/bin/ssh-vault-transport"; via=tailscale
++elif timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 desktop-native-tail "$check" </dev/null; then
++  src=desktop-native-tail:/home/louranicas/SSH.vault/; rsh="ssh -o BatchMode=yes -o ConnectTimeout=10"; via=native
++else
++  printf 'ssh-vault-sync: neither Tailscale SSH nor native SSH reached the desktop.\n' >&2; exit 1
++fi
++printf 'ssh-vault-sync: transport=%s\n' "$via"
+ [[ ! -L "$HOME/SSH.vault" ]] || { printf 'Refusing symlink destination.\n' >&2; exit 1; }
+ mkdir -p "$HOME/SSH.vault"
+ backup="$state/backups/$(date -u +%Y%m%dT%H%M%S)-$$"
+ timeout 150 rsync -a --checksum --no-owner --no-group --safe-links \
+   --delete-delay --backup --backup-dir="$backup" --itemize-changes \
+   --exclude='/.obsidian/' --exclude='/.trash/' \
+-  -e "$HOME/.local/bin/ssh-vault-transport" "${extra[@]}" \
+-  omarchy-remote:/home/louranicas/SSH.vault/ "$HOME/SSH.vault/"
++  -e "$rsh" "${extra[@]}" \
++  "$src" "$HOME/SSH.vault/"
+ if [[ ${#extra[@]} -eq 0 ]]; then
+   date -u +%FT%TZ > "$state/last-success.tmp"
+   mv "$state/last-success.tmp" "$state/last-success"

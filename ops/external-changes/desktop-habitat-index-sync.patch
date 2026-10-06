@@ -1,0 +1,23 @@
+--- /home/louranicas/.local/bin/habitat-index-sync.bak-20261007-flock	2026-10-05 20:38:43.420412967 +1100
++++ /home/louranicas/.local/bin/habitat-index-sync	2026-10-07 00:10:24.296472702 +1100
+@@ -436,7 +436,19 @@
+ 
+ def main() -> int:
+     lockf = open("/var/tmp/habitat-index-sync.lock", "a")
+-    fcntl.flock(lockf, fcntl.LOCK_EX)
++    # Bounded wait (2026-10-07): an unbounded LOCK_EX hung a run until systemd's 10-minute start timeout
++    # killed it (2026-10-06 00:05). Wait at most 120 s, then refuse by name so the cause is visible.
++    import time as _time
++    deadline = _time.monotonic() + 120
++    while True:
++        try:
++            fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
++            break
++        except BlockingIOError:
++            if _time.monotonic() >= deadline:
++                print("LOCK_BUSY /var/tmp/habitat-index-sync.lock held for over 120 s by another run", file=sys.stderr)
++                return 75
++            _time.sleep(2)
+     for path in MUST:
+         if not os.path.isfile(path):
+             print(f"MISSING {path}", file=sys.stderr)
