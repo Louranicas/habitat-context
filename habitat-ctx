@@ -7,6 +7,7 @@
                                fused by reciprocal rank; prints path#heading, score and jev_ok
   habitat-ctx stats            what the DB holds and when it was built
   habitat-ctx refresh          off-site pull now, then the chained incremental context rebuild
+  habitat-ctx label "<question>" "<vault/path.md>"   record which note answered (feeds tests/eval_heldout.py --with-labels)
 
 Embedding the question needs the desktop's ollama via `ssh -L 11435:127.0.0.1:11434
 desktop-native-tail`. Without it, ask degrades to FTS only and says so. Every brief and ask writes a
@@ -325,6 +326,13 @@ if __name__ == "__main__":
         ask(a[1], k, "--jev-only" in a, scope, "--judge" in a)
     elif a[0] == "stats":
         stats()
+    elif a[0] == "label" and len(a) > 2:  # grow the eval set from real use: which note actually answered
+        r = rcon()
+        r.execute("create table if not exists labels(id integer primary key, ts text, question text, gold text, origin text)")
+        r.execute("insert into labels(ts,question,gold,origin) values(?,?,?,?)",
+                  (time.strftime("%Y-%m-%dT%H:%M:%S%z"), a[1], a[2], os.environ.get("HABITAT_CTX_ORIGIN", "session")))
+        r.commit()
+        print(f"labelled: {a[2]}")
     elif a[0] == "refresh":  # off-site pull, then the chained incremental context rebuild
         import subprocess
         sys.exit(subprocess.run(["systemctl", "--user", "start", "habitat-offsite-pull.service"]).returncode)

@@ -17,6 +17,15 @@ def opt(name, default):
     return default
 min1, min5 = int(opt("--min-hit1", 18)), int(opt("--min-hit5", 31))
 out_json = opt("--json", None)
+if "--with-labels" in args:  # add labels recorded in real use (habitat-ctx label) to the on-topic set
+    args.remove("--with-labels")
+    import turso
+    rdb = os.path.expanduser("~/.local/share/turso/context/receipts.db")
+    try:
+        rows = turso.connect(rdb).execute("select question, gold from labels where origin != 'eval'").fetchall()
+        H["on"] += [{"q": q, "gold": [g], "style": "live", "deep": False} for q, g in rows]
+    except Exception:
+        pass
 env = dict(os.environ)
 env.setdefault("HABITAT_CTX_RECEIPTS", "/tmp/habitat-ctx-eval-receipts.db")
 env.setdefault("HABITAT_CTX_ORIGIN", "eval")  # never pollute the real audit trail
