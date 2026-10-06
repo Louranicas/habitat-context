@@ -2,7 +2,7 @@
 """habitat-ctx — curated habitat context from the Turso context DB (prime packets with receipts).
 
   habitat-ctx brief            startup card (<= ~2 KB): orientation, open blockers, where to look
-  habitat-ctx ask "<question>" [-k 5] [--jev-only] [--scope "70 Facets"]
+  habitat-ctx ask "<question>" [-k 5] [--jev-only] [--scope "70 Facets"] [--judge]
                                hybrid retrieval: Turso FTS (BM25) + section embeddings (cosine),
                                fused by reciprocal rank; prints path#heading, score and jev_ok
   habitat-ctx stats            what the DB holds and when it was built
@@ -104,6 +104,26 @@ def embed(q):
             tun.kill()
 
 
+CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", "http://127.0.0.1:11435/v1/chat/completions")
+JUDGE_MODEL = os.environ.get("HABITAT_CTX_JUDGE", "gemma4:12b")
+# Conformal read-set sizes from the independent held-out set (n=40, 2026-10-06; recompute when the index changes).
+READ_K = {"70%": 3, "80%": 7}
+
+
+def p_yes(question, text):
+    """Local YES/NO judge: P(YES) from the answer token's log-probability (reasoning off). Text is capped
+    so the prompt stays under Ollama /v1's silent ~2k-token truncation."""
+    import math
+    body = {"model": JUDGE_MODEL, "temperature": 0, "max_tokens": 2, "logprobs": True, "top_logprobs": 5,
+            "reasoning_effort": "none",
+            "messages": [{"role": "user", "content": f"Question: {question}\n\nNote section:\n{text[:1800]}\n\n"
+                          "Does this note section directly answer the question? Reply with exactly one word: YES or NO."}]}
+    req = urllib.request.Request(CHAT, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    tok = json.load(urllib.request.urlopen(req, timeout=120))["choices"][0]["logprobs"]["content"][0]
+    p, w = math.exp(tok["logprob"]), tok["token"].strip().upper()
+    return p if w.startswith("Y") else (1 - p if w.startswith("N") else 0.5)
+
+
 def fts_terms(q):
     # Prefix '*' silently returns nothing on this engine; quote plain words only.
     words = [w for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}", q.lower())
@@ -111,7 +131,7 @@ def fts_terms(q):
     return " ".join(words)
 
 
-def ask(question, k=5, jev_only=False, scope=None):
+def ask(question, k=5, jev_only=False, scope=None, judge=False):
     c = con()
     where = " and jev_ok=1" if jev_only else ""
     params_scope = ()
@@ -171,9 +191,19 @@ def ask(question, k=5, jev_only=False, scope=None):
         items.append({"id": i, "path": path, "heading": head})
         if len(out) >= k:
             break
+    if judge and items:
+        bodies = [c.execute("select body from sections where id=?", (it["id"],)).fetchone()[0] for it in items[:5]]
+        try:
+            scores = [p_yes(question, b) for b in bodies]
+            order = sorted(range(len(scores)), key=lambda i: -scores[i])
+            out = [f"P(yes)={scores[i]:.2f}  " + out[i] for i in order] + out[5:]
+            items = [items[i] for i in order] + items[5:]
+            mode += f" + {JUDGE_MODEL} judge"
+        except Exception as e:
+            mode += f" (judge unavailable: {type(e).__name__})"
     conf = "" if margin is None else (f"  top1_dist={top1:.3f} margin={margin:.3f}"
                                       + (f"  ABSTAIN: nothing close (dist>{ABSTAIN_DIST})" if top1 > ABSTAIN_DIST
-                                         else ("  LOW: read the top 3" if margin < 0.05 else "")))
+                                         else f"  read top {READ_K['70%']} (>=70%) · top {READ_K['80%']} (>=80%)"))
     text = f"habitat-ctx ask ({mode}){conf}\n" + "\n".join(out)
     print(text)
     receipt(c, "ask", question, text, items)
@@ -270,7 +300,7 @@ if __name__ == "__main__":
     elif a[0] == "ask" and len(a) > 1:
         k = int(a[a.index("-k") + 1]) if "-k" in a else 5
         scope = a[a.index("--scope") + 1] if "--scope" in a else None
-        ask(a[1], k, "--jev-only" in a, scope)
+        ask(a[1], k, "--jev-only" in a, scope, "--judge" in a)
     elif a[0] == "stats":
         stats()
     else:
