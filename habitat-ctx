@@ -114,6 +114,7 @@ def embed(q):
 
 CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", _OLLAMA + "/v1/chat/completions")
 JUDGE_MODEL = os.environ.get("HABITAT_CTX_JUDGE", "gemma4:12b")
+JUDGE_ABSTAIN_DIST = float(os.environ.get("HABITAT_CTX_JUDGE_ABSTAIN", "0.40"))  # provisional, see ask()
 # Split-conformal read-set sizes from the independent held-out set (n=40, index v5, 2026-10-06).
 # Recompute whenever the index or ranking changes (v3 was 4 / 5).
 READ_K = {"70%": 3, "80%": 4}
@@ -208,8 +209,11 @@ def ask(question, k=5, jev_only=False, scope=None, judge=False, snippets=False):
             out = [f"P(yes)={scores[i]:.2f}  " + out[i] for i in order] + out[5:]
             items = [items[i] for i in order] + items[5:]
             mode += f" + {JUDGE_MODEL} judge"
-            if max(scores) < 0.5:
-                mode += "  ABSTAIN (judge: no top-5 section answers this)"
+            # Combined rule (judge says no AND not very close): on held-out n=48 it caught 8/8 off-topic
+            # including the Terraform near miss, with 0/40 false abstentions. The judge alone gave 10/40 false.
+            # PROVISIONAL: T=0.40 was fitted on the same data (the near miss sat at 0.417); confirm with labels.
+            if max(scores) < 0.5 and (top1 or 0) > JUDGE_ABSTAIN_DIST:
+                mode += "  ABSTAIN (judge + distance: nothing in the top 5 answers this)"
         except Exception as e:
             mode += f" (judge unavailable: {type(e).__name__})"
     conf = "" if margin is None else (f"  top1_dist={top1:.3f} margin={margin:.3f}"
