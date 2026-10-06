@@ -4,6 +4,8 @@ Description=Incremental rebuild of the habitat context DB from the live vaults (
 [Service]
 Type=oneshot
 ExecStart=%h/.local/share/turso/context/bin/habitat-context-refresh
+# A failing doctor marks this unit failed, and the brief's LIVE line lists failed units in every session.
+ExecStartPost=%h/.local/share/turso/context/habitat-ctx doctor
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=60min
