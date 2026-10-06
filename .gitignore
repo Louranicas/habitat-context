@@ -3,3 +3,4 @@
 *.db-shm
 elig_check.py
 __pycache__/
+*.version
