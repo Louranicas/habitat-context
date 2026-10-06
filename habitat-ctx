@@ -223,6 +223,10 @@ def ask(question, k=5, jev_only=False, scope=None, judge=False, snippets=False):
         budget, packed = 24 * 1024, []
         for line, it in zip(out[:8], items[:8]):
             body = c.execute("select body from sections where id=?", (it["id"],)).fetchone()[0]
+            if it["heading"].startswith(("[q] ", "[note]")):
+                # a generated-question or note-card match: show the note's own opening, not the generated text
+                card = c.execute("select body from sections where path=? and heading='[note]'", (it["path"],)).fetchone()
+                body = card[0] if card else body
             ex = re.sub(r"\s+", " ", body)[:420]
             chunk = f"{line}\n    > {ex}"
             if sum(len(x) for x in packed) + len(chunk) > budget:
