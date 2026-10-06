@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly habitat context refresh on the desktop (R-095)
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Incremental rebuild of the habitat context DB from the live vaults (desktop twin, R-095)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/turso/context/bin/habitat-context-refresh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=60min
