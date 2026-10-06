@@ -2,7 +2,7 @@
 """habitat-ctx — curated habitat context from the Turso context DB (prime packets with receipts).
 
   habitat-ctx brief            startup card (<= ~2 KB): orientation, open blockers, where to look
-  habitat-ctx ask "<question>" [-k 5] [--jev-only] [--scope "70 Facets"] [--judge]
+  habitat-ctx ask "<question>" [-k 5] [--jev-only] [--scope "70 Facets"] [--judge] [--snippets]
                                hybrid retrieval: Turso FTS (BM25) + section embeddings (cosine),
                                fused by reciprocal rank; prints path#heading, score and jev_ok
   habitat-ctx stats            what the DB holds and when it was built
@@ -140,7 +140,7 @@ def fts_terms(q):
     return " ".join(words)
 
 
-def ask(question, k=5, jev_only=False, scope=None, judge=False):
+def ask(question, k=5, jev_only=False, scope=None, judge=False, snippets=False):
     c = con()
     where = " and jev_ok=1" if jev_only else ""
     params_scope = ()
@@ -215,6 +215,16 @@ def ask(question, k=5, jev_only=False, scope=None, judge=False):
     conf = "" if margin is None else (f"  top1_dist={top1:.3f} margin={margin:.3f}"
                                       + (f"  ABSTAIN: nothing close (dist>{ABSTAIN_DIST})" if top1 > ABSTAIN_DIST
                                          else f"  read top {READ_K['70%']} (>=70%) · top {READ_K['80%']} (>=80%)"))
+    if snippets:  # context packet: excerpts under Poteto Weave's budget (<= 8 excerpts, <= 24 KiB in total)
+        budget, packed = 24 * 1024, []
+        for line, it in zip(out[:8], items[:8]):
+            body = c.execute("select body from sections where id=?", (it["id"],)).fetchone()[0]
+            ex = re.sub(r"\s+", " ", body)[:420]
+            chunk = f"{line}\n    > {ex}"
+            if sum(len(x) for x in packed) + len(chunk) > budget:
+                break
+            packed.append(chunk)
+        out = packed + out[len(packed):]
     text = f"habitat-ctx ask ({mode}){conf}\n" + "\n".join(out)
     print(text)
     receipt(c, "ask", question, text, items)
@@ -334,7 +344,7 @@ if __name__ == "__main__":
     elif a[0] == "ask" and len(a) > 1:
         k = int(a[a.index("-k") + 1]) if "-k" in a else 5
         scope = a[a.index("--scope") + 1] if "--scope" in a else None
-        ask(a[1], k, "--jev-only" in a, scope, "--judge" in a)
+        ask(a[1], k, "--jev-only" in a, scope, "--judge" in a, "--snippets" in a)
     elif a[0] == "stats":
         stats()
     elif a[0] == "label" and len(a) > 2:  # grow the eval set from real use: which note actually answered
