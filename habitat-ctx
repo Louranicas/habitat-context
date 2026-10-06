@@ -18,7 +18,7 @@ import turso
 DB = os.environ.get("HABITAT_CTX_DB", os.path.expanduser("~/.local/share/turso/context/habitat-context.db"))
 EMB = os.environ.get("HABITAT_CTX_EMB_URL", "http://127.0.0.1:11435/v1/embeddings")
 ABSTAIN_DIST = float(os.environ.get("HABITAT_CTX_ABSTAIN", "0.53"))  # provisional: 2026-10-06, n=22, on-topic max 0.499, off-topic min 0.562 (facets)
-FTS_WEIGHT = 0.5  # measured 2026-10-06: OR-of-words FTS is noisier than embeddings; half weight in the fusion
+FTS_WEIGHT = float(os.environ.get("HABITAT_CTX_FTS_W", "0.5"))  # measured 2026-10-06: OR-of-words FTS is noisier than embeddings; half weight in the fusion
 SNAP = os.path.expanduser("~/Backups/herdr-habitat-offsite/snap/latest/vaults")
 RRF_K = 60
 
