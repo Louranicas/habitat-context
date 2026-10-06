@@ -17,6 +17,10 @@ Every brief and every answer writes a receipt, so what an agent was shown is aud
 > off-site snapshot) and on the desktop (Canberra, built from the live vaults). `tests/run_all.sh`
 > passes on both hosts: 17 safety checks, the held-out regression gate and `doctor` (16 checks on the
 > laptop, 14 on the desktop). Figures below were **measured** on 2026-10-07 unless marked otherwise.
+>
+> **As of 2026-10-07 08:30 AEDT:** public at [Louranicas/habitat-context](https://github.com/Louranicas/habitat-context)
+> (branch `master`). Both hosts sit at the same commit, with clean working trees. Live blockers reported by the brief:
+> 21 uncommitted HEE v4 files (awaiting `just gate commit`), and `ssh PATH shadowed` (pam_env, sudo).
 
 The protocol itself, the rules an agent follows, lives in the vault note
 `herdr.habitat.vault/00 Start/Quick context protocol.md`. This repository is the machinery.
@@ -476,7 +480,8 @@ was refused, and a missing cut record also refused HEE. The first real run, on 2
 published:
 - HEE `a6355ef..3293599` (396 commits);
 - LoomLattice (1 commit);
-- deep-diff-forge (3 commits).
+- deep-diff-forge (3 commits);
+- this repository, first published the same morning (`714ff8f`, then `088cebe`).
 
 ## Safety and security
 
