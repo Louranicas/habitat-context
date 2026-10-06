@@ -462,6 +462,7 @@ refreshes the mirrors, then pushes each repository only if every guard passes:
 | verify | after the push, GitHub's tip must equal ours |
 
 It pushes branches only. Tags are a release decision (`just cut-check`) and are never pushed here.
+It covers HEE v4, LoomLattice, deep-diff-forge and this repository (pushed from the laptop's working copy).
 Upstream checkouts (Firstmate, cursor-plugins) are never pushed.
 
 ```bash
@@ -571,4 +572,5 @@ In production on both hosts. Current limitations:
 
 ---
 
-- **Where it lives:** `~/.local/share/turso/context` on both hosts, one history synced by git bundle. It is not on GitHub.
+- **GitHub (public):** https://github.com/Louranicas/habitat-context
+- **Working copies:** `~/.local/share/turso/context` on both hosts, one history synced by git bundle. The laptop publishes it with `habitat-friday-push`.

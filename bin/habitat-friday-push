@@ -21,11 +21,13 @@ mkdir -p "$DEST/logs" || exit 1
 exec > >(tee -a "$LOG") 2>&1
 fail=0; note() { echo "step=$1 rc=$2${3:+ $3}"; [ "$2" = 0 ] || fail=$((fail + 1)); }
 
-# <mirror name> <GitHub repo> <branch> [cut]. "cut" = publish only a cut-checked commit. Upstream checkouts (firstmate, cursor-plugins) are never ours to push.
+# <mirror name | absolute repo path> <GitHub repo> <branch> [cut]. "cut" = publish only a cut-checked commit.
+# A path is used for a repo that lives on the laptop itself (no off-site mirror). Upstream checkouts (firstmate, cursor-plugins) are never ours to push.
 REPOS=(
   "hee4 Louranicas/herdr-engineering-engine-v4 main cut"
   "loom-lattice-habitat Louranicas/loom-lattice-habitat master"
   "deep-diff-forge Louranicas/deep-diff-forge main"
+  "$HOME/.local/share/turso/context Louranicas/habitat-context master"
 )
 HOST=${HABITAT_HOST:-desktop-native-tail}
 # Full shas whose <sha12>/cut-check.json says PASS, newest record first by mtime (read-only over SSH).
@@ -38,7 +40,7 @@ if d.get("verdict")=="PASS" and d.get("sha"): print(d["sha"])' "$f" 2>/dev/null
 done
 EOF
 }
-SECRET='(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+SECRET='(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|tskey-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
 
 # 1. Fresh mirrors: publish exactly what the desktop holds now.
 if [ "${HABITAT_PUSH_SKIP_PULL:-0}" = 1 ]; then echo "step=pull skipped=1"
@@ -47,7 +49,7 @@ if [ "$fail" != 0 ]; then echo "push verdict=FAIL reason=pull_failed log=$LOG"; 
 
 for entry in "${REPOS[@]}"; do
   read -r name gh branch cut <<< "$entry"
-  m="$DEST/git/$name.git"; url="https://github.com/$gh.git"
+  m="$DEST/git/$name.git"; case "$name" in /*) m=$name; name=$(basename "$name");; esac; url="https://github.com/$gh.git"
   ours=$(git -C "$m" rev-parse --verify -q "refs/heads/$branch") || { note "$name:local" 1 "no_branch=$branch"; continue; }
   if [ "${cut:-}" = cut ]; then
     head=$ours; ours=""
