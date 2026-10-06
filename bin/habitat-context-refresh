@@ -3,6 +3,11 @@
 # Opens its own SSH forward to the desktop's ollama for embeddings (compute only), then closes it by PID.
 # Read-only toward the desktop. Last line: `context verdict=PASS|FAIL ...`.
 set -uo pipefail
+if [ -d /mnt/storage-10tb/fedora-obsidian-vaults ]; then  # on the desktop: ollama is local, no tunnel
+  cd "$HOME/.local/share/turso/context" || exit 1
+  out=$("$HOME/.local/share/turso/sdk-venv/bin/python" build_context.py --port 11434 2>&1); rc=$?
+  echo "$out" | tail -3; [ "$rc" = 0 ] && echo "context verdict=PASS" || echo "context verdict=FAIL rc=$rc"; exit "$rc"
+fi
 PORT=11436
 ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -L "$PORT:127.0.0.1:11434" desktop-native-tail &
 TPID=$!

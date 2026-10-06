@@ -18,7 +18,10 @@ import argparse, glob, hashlib, json, os, re, shutil, subprocess, sys, time, url
 import turso
 
 HOME = os.path.expanduser("~")
-SNAP = os.path.join(HOME, "Backups/herdr-habitat-offsite/snap/latest/vaults")
+ON_DESKTOP = os.path.isdir("/mnt/storage-10tb/fedora-obsidian-vaults")
+# On the desktop build from the live vaults; on the laptop from the off-site snapshot.
+SNAP = os.environ.get("HABITAT_SNAP", "/mnt/storage-10tb/fedora-obsidian-vaults" if ON_DESKTOP
+                      else os.path.join(HOME, "Backups/herdr-habitat-offsite/snap/latest/vaults"))
 DB = os.environ.get("HABITAT_CTX_DB", os.path.join(HOME, ".local/share/turso/context/habitat-context.db"))
 REMOTE_VAULTS = "/mnt/storage-10tb/fedora-obsidian-vaults"
 EMB_URL = "http://127.0.0.1:{port}/v1/embeddings"
@@ -84,6 +87,11 @@ def jev_eligible(rel_paths):
     local = os.path.join(os.path.dirname(DB), "elig_check.py")
     with open(local, "w") as fh:
         fh.write(script)
+    if ON_DESKTOP:  # the boundary is local here
+        r = subprocess.run(["python3", local], input=json.dumps(rel_paths).encode(), capture_output=True, timeout=1800)
+        if r.returncode != 0:
+            sys.exit(f"boundary check failed rc={r.returncode}: {r.stderr.decode()[:300]}")
+        return json.loads(r.stdout)
     remote = "/home/louranicas/.cache/claude-test-20261006/ctx/elig_check.py"
     subprocess.run(["scp", "-q", local, f"desktop-native-tail:{remote}"], check=True, timeout=60)
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", "desktop-native-tail", "python3", remote],
@@ -166,8 +174,8 @@ def main():
         cur.execute(f"create index if not exists sections_fts on sections using fts({FTS_COLS})")
     except Exception as e:
         print("fts index:", e)
-    snap = os.path.realpath(os.path.join(SNAP, ".."))
-    for k, v in {"built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "snapshot": os.path.basename(snap),
+    snap = "live" if ON_DESKTOP else os.path.basename(os.path.realpath(os.path.join(SNAP, "..")))
+    for k, v in {"built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "snapshot": snap,
                  "emb_model": EMB_MODEL, "tursodb": "0.8.1", "build_version": BUILD_VERSION, "fts_cols": FTS_COLS}.items():
         cur.execute("insert or replace into meta values(?,?)", (k, v))
     con.commit()

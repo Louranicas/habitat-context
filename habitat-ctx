@@ -17,10 +17,14 @@ import hashlib, json, os, re, sys, time, urllib.request
 import turso
 
 DB = os.environ.get("HABITAT_CTX_DB", os.path.expanduser("~/.local/share/turso/context/habitat-context.db"))
-EMB = os.environ.get("HABITAT_CTX_EMB_URL", "http://127.0.0.1:11435/v1/embeddings")
+# Host-aware: both machines are named 'omarchy'; the desktop is the one with the 10 TB vault root.
+ON_DESKTOP = os.path.isdir("/mnt/storage-10tb/fedora-obsidian-vaults")
+_OLLAMA = "http://127.0.0.1:11434" if ON_DESKTOP else "http://127.0.0.1:11435"
+EMB = os.environ.get("HABITAT_CTX_EMB_URL", _OLLAMA + "/v1/embeddings")
 ABSTAIN_DIST = float(os.environ.get("HABITAT_CTX_ABSTAIN", "0.53"))  # provisional: 2026-10-06, n=22, on-topic max 0.499, off-topic min 0.562 (facets)
 FTS_WEIGHT = float(os.environ.get("HABITAT_CTX_FTS_W", "0.5"))  # measured 2026-10-06: OR-of-words FTS is noisier than embeddings; half weight in the fusion
-SNAP = os.path.expanduser("~/Backups/herdr-habitat-offsite/snap/latest/vaults")
+SNAP = "/mnt/storage-10tb/fedora-obsidian-vaults" if os.path.isdir("/mnt/storage-10tb/fedora-obsidian-vaults") \
+    else os.path.expanduser("~/Backups/herdr-habitat-offsite/snap/latest/vaults")
 RRF_K = 60
 
 
@@ -83,7 +87,7 @@ def embed(q):
     try:
         return _embed_at(EMB, q)
     except Exception:
-        if os.environ.get("HABITAT_CTX_NO_TUNNEL"):
+        if os.environ.get("HABITAT_CTX_NO_TUNNEL") or ON_DESKTOP:
             raise
     import socket, subprocess
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
@@ -107,7 +111,7 @@ def embed(q):
             tun.kill()
 
 
-CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", "http://127.0.0.1:11435/v1/chat/completions")
+CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", _OLLAMA + "/v1/chat/completions")
 JUDGE_MODEL = os.environ.get("HABITAT_CTX_JUDGE", "gemma4:12b")
 # Split-conformal read-set sizes from the independent held-out set (n=40, index v3, 2026-10-06).
 # Recompute whenever the index or ranking changes.
@@ -229,7 +233,9 @@ def live_probe(c, timeout=4):
     """One read-only ssh probe (script on stdin, never a nested -c string). Cache it; fall back to the cache."""
     import subprocess
     try:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", os.environ.get("HABITAT_HOST", "desktop-native-tail"), "bash", "-s"],
+        cmd = ["bash", "-s"] if ON_DESKTOP else ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                                                  os.environ.get("HABITAT_HOST", "desktop-native-tail"), "bash", "-s"]
+        r = subprocess.run(cmd,
                            input=PROBE, capture_output=True, text=True, timeout=timeout)
         data = json.loads(r.stdout.strip().splitlines()[-1])
         data["at"] = time.strftime("%H:%M")
@@ -273,7 +279,9 @@ def brief():
         "# Habitat context: Quick context protocol v1 (herdr.habitat.vault/00 Start/Quick context protocol.md)",
         f"Context DB built {built.get('built_at','?')} from off-site snapshot {built.get('snapshot','?')}: "
         f"{n} sections, {e} embedded.{stale} This card is a pointer; state is a query, so re-check live before acting.",
-        "WHERE: the habitat runs on the Canberra desktop (ssh desktop-native-tail); this laptop holds the off-site copy.",
+        ("WHERE: you are ON the Canberra desktop (the habitat itself); vaults at /mnt/storage-10tb/fedora-obsidian-vaults."
+         if ON_DESKTOP else
+         "WHERE: the habitat runs on the Canberra desktop (ssh desktop-native-tail); this laptop holds the off-site copy."),
         "1 ORIENT, stopping when covered: facet summaries (70 Facets) via `habitat-ctx ask`; Home and session state; "
         "the handoff and ledger; then the project entry (HEE: START.md, context-doctor, hee4db recipe restart).",
         "2 RETRIEVE by lawful judge: grep or hee4db first; `habitat-ctx ask` (FTS and embeddings, works on facets and v4); "
