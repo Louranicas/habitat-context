@@ -9,3 +9,14 @@ ExecStart=%h/.local/bin/habitat-offsite-pull
 TimeoutStartSec=45min
 Nice=10
 IOSchedulingClass=idle
+UMask=0077
+# Sandboxing (2026-10-07): no-namespace options only. In a user unit, ProtectSystem/PrivateTmp/ProtectKernel*
+# run in a user namespace where root-owned files look unowned, and OpenSSH then refuses
+# /etc/ssh/ssh_config.d/* ("Bad owner or permissions", MEASURED). Seccomp and no-new-privileges still apply.
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

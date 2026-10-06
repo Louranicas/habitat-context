@@ -8,7 +8,17 @@ Wants=network-online.target
 # per-question tunnel, then to FTS-only, if this is down.
 ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:11435:127.0.0.1:11434 desktop-native-tail
 Restart=always
-RestartSec=20
+RestartSec=60
+# Sandboxing (2026-10-07): no-namespace options only. In a user unit, ProtectSystem/PrivateTmp/ProtectKernel*
+# run in a user namespace where root-owned files look unowned, and OpenSSH then refuses
+# /etc/ssh/ssh_config.d/* ("Bad owner or permissions", MEASURED). Seccomp and no-new-privileges still apply.
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=default.target
