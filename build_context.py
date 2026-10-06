@@ -28,7 +28,8 @@ PRIORITY = {"herdr.habitat.vault", "herdr-engineering-engine-v4.vault", "jev.vau
             "herdr-habitat-orchistration.vault", "toolshed.vault"}
 FENCED = ("herdr-engineering-engine-v3.vault",)
 MAX_SECTION = 2000
-BUILD_VERSION = "2"  # v2: frontmatter stripped; contextual chunks (vault > title / heading); ctx FTS column
+BUILD_VERSION = "3"  # v3: frontmatter stripped; contextual chunks embedded; FTS on body only
+FTS_COLS = "body"   # held-out (n=40, 2026-10-06): body-only FTS 14/29/30 @1/3/5; (ctx,body) 13/24/25; (ctx,body) ctx=2 10/17/21
 
 
 def strip_frontmatter(text):
@@ -148,12 +149,12 @@ def main():
             cur.execute("insert into sections(vault,path,heading,body,sha,jev_ok,emb,ctx) values(?,?,?,?,?,?,vector32(?),?)", r)
     con.commit()
     try:
-        cur.execute("create index if not exists sections_fts on sections using fts(ctx, body) with (weights='ctx=2,body=1')")
+        cur.execute(f"create index if not exists sections_fts on sections using fts({FTS_COLS})")
     except Exception as e:
         print("fts index:", e)
     snap = os.path.realpath(os.path.join(SNAP, ".."))
     for k, v in {"built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "snapshot": os.path.basename(snap),
-                 "emb_model": EMB_MODEL, "tursodb": "0.8.1", "build_version": BUILD_VERSION}.items():
+                 "emb_model": EMB_MODEL, "tursodb": "0.8.1", "build_version": BUILD_VERSION, "fts_cols": FTS_COLS}.items():
         cur.execute("insert or replace into meta values(?,?)", (k, v))
     con.commit()
     n, e, j = cur.execute("select count(*), count(emb), sum(jev_ok) from sections").fetchone()

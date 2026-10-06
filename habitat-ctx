@@ -15,7 +15,7 @@ import hashlib, json, os, re, sys, time, urllib.request
 
 import turso
 
-DB = os.path.expanduser("~/.local/share/turso/context/habitat-context.db")
+DB = os.environ.get("HABITAT_CTX_DB", os.path.expanduser("~/.local/share/turso/context/habitat-context.db"))
 EMB = os.environ.get("HABITAT_CTX_EMB_URL", "http://127.0.0.1:11435/v1/embeddings")
 ABSTAIN_DIST = float(os.environ.get("HABITAT_CTX_ABSTAIN", "0.53"))  # provisional: 2026-10-06, n=22, on-topic max 0.499, off-topic min 0.562 (facets)
 FTS_WEIGHT = 0.5  # measured 2026-10-06: OR-of-words FTS is noisier than embeddings; half weight in the fusion
@@ -106,8 +106,9 @@ def embed(q):
 
 CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", "http://127.0.0.1:11435/v1/chat/completions")
 JUDGE_MODEL = os.environ.get("HABITAT_CTX_JUDGE", "gemma4:12b")
-# Conformal read-set sizes from the independent held-out set (n=40, 2026-10-06; recompute when the index changes).
-READ_K = {"70%": 3, "80%": 7}
+# Split-conformal read-set sizes from the independent held-out set (n=40, index v3, 2026-10-06).
+# Recompute whenever the index or ranking changes.
+READ_K = {"70%": 4, "80%": 5}
 
 
 def p_yes(question, text):
@@ -147,8 +148,8 @@ def ask(question, k=5, jev_only=False, scope=None, judge=False):
         try:
             # fts_score also reads 0.0 when any other predicate shares the WHERE (MEASURED): query bare,
             # then apply scope and jev filters in Python.
-            bv = (c.execute("select value from meta where key='build_version'").fetchone() or ["1"])[0]
-            cols = "ctx, body" if bv == "2" else "body"
+            # the builder records the FTS index's columns; never infer them from a version number
+            cols = (c.execute("select value from meta where key='fts_cols'").fetchone() or ["body"])[0]
             rows = c.execute(f"select id, fts_score({cols}, {lit}) s from sections where fts_match({cols}, {lit})"
                              f" order by s desc limit 400").fetchall()
             keep = []
@@ -264,7 +265,7 @@ def brief():
         "the handoff and ledger; then the project entry (HEE: START.md, context-doctor, hee4db recipe restart).",
         "2 RETRIEVE by lawful judge: grep or hee4db first; `habitat-ctx ask` (FTS and embeddings, works on facets and v4); "
         "local BAML YES/NO for close calls (set num_ctx); Jev only for the boundary-cleared corpus. "
-        "Ask existence first, separate questions, a margin under 0.05 means read the top 3, log skips. "
+        "Ask existence first, separate questions; read the top 4 (>=70% hit) or top 5 (>=80%; conformal, held-out n=40); `--judge` re-checks the top 5 locally (+2 in the top 3 on v3, ~4 s). Log skips. "
         "No v4 text to Jev, not even a summary.",
         "3 ACT SAFELY: engine work in a desktop session in the repo (a refusal means the wrong place, don't route around it). "
         "Use quoted `bash -s` heredocs; no nested bash -c; never pkill -f. Plant a failing control before trusting a green. "
