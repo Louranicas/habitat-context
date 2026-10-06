@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily off-site pull of the herdr habitat (R-060)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

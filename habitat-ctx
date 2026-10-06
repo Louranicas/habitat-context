@@ -1,0 +1,210 @@
+#!/home/louranicas/.local/share/turso/sdk-venv/bin/python
+"""habitat-ctx — curated habitat context from the Turso context DB (prime packets with receipts).
+
+  habitat-ctx brief            startup card (<= ~2 KB): orientation, open blockers, where to look
+  habitat-ctx ask "<question>" [-k 5] [--jev-only] [--scope "70 Facets"]
+                               hybrid retrieval: Turso FTS (BM25) + section embeddings (cosine),
+                               fused by reciprocal rank; prints path#heading, score and jev_ok
+  habitat-ctx stats            what the DB holds and when it was built
+
+Embedding the question needs the desktop's ollama via `ssh -L 11435:127.0.0.1:11434
+desktop-native-tail`. Without it, ask degrades to FTS only and says so. Every brief and ask writes a
+receipt (prime_receipts) so what an agent was shown is auditable. Read-only toward everything else.
+"""
+import hashlib, json, os, re, sys, time, urllib.request
+
+import turso
+
+DB = os.path.expanduser("~/.local/share/turso/context/habitat-context.db")
+EMB = os.environ.get("HABITAT_CTX_EMB_URL", "http://127.0.0.1:11435/v1/embeddings")
+ABSTAIN_DIST = float(os.environ.get("HABITAT_CTX_ABSTAIN", "0.53"))  # provisional: 2026-10-06, n=22, on-topic max 0.499, off-topic min 0.562 (facets)
+FTS_WEIGHT = 0.5  # measured 2026-10-06: OR-of-words FTS is noisier than embeddings; half weight in the fusion
+SNAP = os.path.expanduser("~/Backups/herdr-habitat-offsite/snap/latest/vaults")
+RRF_K = 60
+
+
+def con():
+    if not os.path.exists(DB):  # never create an empty DB from a startup hook
+        sys.exit(0)
+    c = turso.connect(DB, experimental_features="index_method")
+    c.execute("create table if not exists prime_receipts(id integer primary key, ts text, kind text,"
+              " query text, packet_sha text, items text)")
+    return c
+
+
+def receipt(c, kind, query, text, items):
+    c.execute("insert into prime_receipts(ts,kind,query,packet_sha,items) values(?,?,?,?,?)",
+              (time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind, query,
+               hashlib.sha256(text.encode()).hexdigest()[:16], json.dumps(items)))
+    c.commit()
+
+
+def _embed_at(url, q):
+    body = {"model": "qwen3-embedding:0.6b",
+            "input": ["Instruct: Given a question, retrieve the habitat note section that answers it\nQuery: " + q]}
+    req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    return json.load(urllib.request.urlopen(req, timeout=20))["data"][0]["embedding"]
+
+
+def embed(q):
+    """Use the configured endpoint; if it is down, open a short-lived ssh -L to the desktop's ollama
+    (compute only), embed, and close it by its own process handle (never by pattern)."""
+    try:
+        return _embed_at(EMB, q)
+    except Exception:
+        if os.environ.get("HABITAT_CTX_NO_TUNNEL"):
+            raise
+    import socket, subprocess
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    tun = subprocess.Popen(["ssh", "-N", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=5",
+                            "-L", f"{port}:127.0.0.1:11434", "desktop-native-tail"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(40):
+            try:
+                return _embed_at(f"http://127.0.0.1:{port}/v1/embeddings", q)
+            except Exception:
+                if tun.poll() is not None:
+                    raise
+                time.sleep(0.25)
+        raise TimeoutError("embedding tunnel did not come up")
+    finally:
+        tun.terminate()
+        try:
+            tun.wait(timeout=3)
+        except Exception:
+            tun.kill()
+
+
+def fts_terms(q):
+    # Prefix '*' silently returns nothing on this engine; quote plain words only.
+    words = [w for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}", q.lower())
+             if w not in {"the", "and", "what", "how", "does", "where", "which", "should", "with", "for", "are", "can"}]
+    return " ".join(words)
+
+
+def ask(question, k=5, jev_only=False, scope=None):
+    c = con()
+    where = " and jev_ok=1" if jev_only else ""
+    params_scope = ()
+    if scope:
+        where += " and path like ?"
+        params_scope = (f"%{scope}%",)
+    ranks = {}
+    terms = fts_terms(question)
+    if terms:
+        # fts_score is 0.0 for a bound parameter on tursodb 0.8.1 (MEASURED 2026-10-06): the query text
+        # must be a literal. fts_terms() emits only [A-Za-z0-9_-] words; quotes are escaped as a second guard.
+        lit = "'" + terms.replace("'", "''") + "'"
+        try:
+            # fts_score also reads 0.0 when any other predicate shares the WHERE (MEASURED): query bare,
+            # then apply scope and jev filters in Python.
+            rows = c.execute(f"select id, fts_score(body, {lit}) s from sections where fts_match(body, {lit})"
+                             f" order by s desc limit 400").fetchall()
+            keep = []
+            for i, _ in rows:
+                if where:
+                    path, jev = c.execute("select path, jev_ok from sections where id=?", (i,)).fetchone()
+                    if scope and scope not in path:
+                        continue
+                    if jev_only and not jev:
+                        continue
+                keep.append(i)
+                if len(keep) >= 60:
+                    break
+            for r, i in enumerate(keep):
+                ranks.setdefault(i, {})["fts"] = r + 1
+        except Exception as e:
+            print(f"(fts unavailable: {e})", file=sys.stderr)
+    mode = "hybrid"
+    try:
+        v = json.dumps(embed(question))
+        rows = c.execute(f"select id, vector_distance_cos(emb, vector32(?)) d from sections"
+                         f" where emb is not null{where} order by d limit 60", (v,) + params_scope).fetchall()
+        for r, (i, _) in enumerate(rows):
+            ranks.setdefault(i, {})["vec"] = r + 1
+        top1 = rows[0][1] if rows else 1.0
+        top2 = [d for _, d in rows[:2]]
+        margin = (top2[1] - top2[0]) if len(top2) == 2 else 0.0
+    except Exception:
+        mode, margin, top1 = "fts-only (embedding tunnel down)", None, None
+    w = {"fts": FTS_WEIGHT, "vec": 1.0}
+    scored = sorted(ranks.items(), key=lambda kv: -sum(w[s] / (RRF_K + r) for s, r in kv[1].items()))
+    out, items, seen = [], [], set()
+    for i, how in scored:  # one best section per note
+        vault, path, head, jev = c.execute("select vault, path, heading, jev_ok from sections where id=?", (i,)).fetchone()
+        if path in seen:
+            continue
+        seen.add(path)
+        score = sum(w[s] / (RRF_K + r) for s, r in how.items())
+        out.append(f"{score:.4f}  {path}#{head[:60]}  [{'+'.join(sorted(how))}] jev_ok={jev}")
+        items.append({"id": i, "path": path, "heading": head})
+        if len(out) >= k:
+            break
+    conf = "" if margin is None else (f"  top1_dist={top1:.3f} margin={margin:.3f}"
+                                      + (f"  ABSTAIN: nothing close (dist>{ABSTAIN_DIST})" if top1 > ABSTAIN_DIST
+                                         else ("  LOW: read the top 3" if margin < 0.05 else "")))
+    text = f"habitat-ctx ask ({mode}){conf}\n" + "\n".join(out)
+    print(text)
+    receipt(c, "ask", question, text, items)
+
+
+def brief():
+    c = con()
+    built = dict(c.execute("select key, value from meta").fetchall())
+    n, e = c.execute("select count(*), count(emb) from sections").fetchone()
+    led = os.path.join(SNAP, "herdr.habitat.vault/50 Ledger/Recommendations ledger.md")
+    status = {}
+    if os.path.exists(led):
+        for line in open(led, errors="replace"):
+            m = re.match(r"^\| (R-\d+) \| .*? \| ([^|]+?) \| ", line)
+            if m:
+                st = m.group(2).strip().split(" (")[0].split(":")[0]
+                status[st] = status.get(st, 0) + 1
+    held = [l.split("|")[1].strip() for l in open(led, errors="replace")
+            if l.startswith("| R-") and "held for Luke" in l] if os.path.exists(led) else []
+    lines = [
+        "# Habitat context: Quick context protocol v1 (herdr.habitat.vault/00 Start/Quick context protocol.md)",
+        f"Context DB built {built.get('built_at','?')} from off-site snapshot {built.get('snapshot','?')}: "
+        f"{n} sections, {e} embedded. This card is a pointer; state is a query, so re-check live before acting.",
+        "WHERE: the habitat runs on the Canberra desktop (ssh desktop-native-tail); this laptop holds the off-site copy.",
+        "1 ORIENT, stopping when covered: facet summaries (70 Facets) via `habitat-ctx ask`; Home and session state; "
+        "the handoff and ledger; then the project entry (HEE: START.md, context-doctor, hee4db recipe restart).",
+        "2 RETRIEVE by lawful judge: grep or hee4db first; `habitat-ctx ask` (FTS and embeddings, works on facets and v4); "
+        "local BAML YES/NO for close calls (set num_ctx); Jev only for the boundary-cleared corpus. "
+        "Ask existence first, separate questions, a margin under 0.05 means read the top 3, log skips. "
+        "No v4 text to Jev, not even a summary.",
+        "3 ACT SAFELY: engine work in a desktop session in the repo (a refusal means the wrong place, don't route around it). "
+        "Use quoted `bash -s` heredocs; no nested bash -c; never pkill -f. Plant a failing control before trusting a green. "
+        "v3 fenced; single DB writers; commit only when asked; gate before commit. Verify gate files after installs.",
+        "4 LEAVE IT BETTER: update the owning note and a dated ledger line; lessons to their one home (facet 11).",
+        f"Ledger: {', '.join(f'{v} {k}' for k, v in sorted(status.items(), key=lambda x: -x[1])[:5])}. "
+        f"Held for Luke: {', '.join(held[:12])}.",
+        "Blockers: Jev door clobbered, needs Luke's restore; HEE patch queue awaits a desktop session; second off-site copy needs a credential.",
+    ]
+    text = "\n".join(lines)
+    print(text)
+    receipt(c, "brief", "", text, [])
+
+
+def stats():
+    c = con()
+    print(dict(c.execute("select key, value from meta").fetchall()))
+    for v, n, e, j in c.execute("select vault, count(*), count(emb), sum(jev_ok) from sections group by vault order by 2 desc"):
+        print(f"  {v:38s} sections={n:6d} embedded={e:6d} jev_ok={j}")
+    print("receipts:", c.execute("select kind, count(*) from prime_receipts group by kind").fetchall())
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if not a or a[0] == "brief":
+        brief()
+    elif a[0] == "ask" and len(a) > 1:
+        k = int(a[a.index("-k") + 1]) if "-k" in a else 5
+        scope = a[a.index("--scope") + 1] if "--scope" in a else None
+        ask(a[1], k, "--jev-only" in a, scope)
+    elif a[0] == "stats":
+        stats()
+    else:
+        print(__doc__)
+        sys.exit(2)

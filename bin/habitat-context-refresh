@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# habitat-context-refresh — incremental rebuild of the Turso context DB after the off-site pull (R-095).
+# Opens its own SSH forward to the desktop's ollama for embeddings (compute only), then closes it by PID.
+# Read-only toward the desktop. Last line: `context verdict=PASS|FAIL ...`.
+set -uo pipefail
+PORT=11436
+ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -L "$PORT:127.0.0.1:11434" desktop-native-tail &
+TPID=$!
+trap 'kill "$TPID" 2>/dev/null' EXIT
+for _ in $(seq 1 20); do curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/v1/models" && break; sleep 1; done
+cd "$HOME/.local/share/turso/context" || exit 1
+out=$("$HOME/.local/share/turso/sdk-venv/bin/python" build_context.py --port "$PORT" 2>&1); rc=$?
+echo "$out" | tail -3
+[ "$rc" = 0 ] && echo "context verdict=PASS" || echo "context verdict=FAIL rc=$rc"
+exit "$rc"

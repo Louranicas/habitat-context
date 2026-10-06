@@ -1,0 +1,11 @@
+[Unit]
+Description=Off-site pull of the herdr habitat from the Canberra desktop (R-060)
+Wants=network-online.target
+After=network-online.target tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/habitat-offsite-pull
+TimeoutStartSec=45min
+Nice=10
+IOSchedulingClass=idle

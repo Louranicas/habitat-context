@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# habitat-offsite-pull — off-site copy of the herdr habitat (R-060), pulled by the Narrandera
+# laptop from the Canberra desktop over Tailscale SSH. Read-only on the desktop: git
+# upload-pack, rsync sender, and `sqlite3 -readonly .dump` only. Writes only under $DEST.
+#   git/<repo>.git          bare mirrors (all refs and tags), updated in place
+#   snap/<UTC stamp>/       dated snapshot; unchanged files hard-linked to the previous one
+#   snap/latest -> newest   only moved after a snapshot completes
+# Keeps $KEEP_DAYS days of snapshots. Last line: `offsite verdict=PASS|FAIL ...`; exit 0 or 1.
+set -uo pipefail
+HOST=${HABITAT_HOST:-desktop-native-tail}
+DEST=${HABITAT_OFFSITE:-$HOME/Backups/herdr-habitat-offsite}
+KEEP_DAYS=${KEEP_DAYS:-30}
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15)
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+LOG="$DEST/logs/pull-$STAMP.log"
+mkdir -p "$DEST/git" "$DEST/snap" "$DEST/logs" || exit 1
+exec > >(tee -a "$LOG") 2>&1
+purge() { chmod -R u+w -- "$@" 2>/dev/null; rm -rf -- "$@"; } # snapshots hold read-only files
+for old in "$DEST"/snap/.partial-*; do [ -e "$old" ] && purge "$old"; done
+fail=0; note() { echo "step=$1 rc=$2${3:+ $3}"; [ "$2" = 0 ] || fail=$((fail + 1)); }
+
+if ! "${SSH[@]}" "$HOST" true; then
+  echo "offsite verdict=FAIL reason=desktop_unreachable host=$HOST log=$LOG"; exit 1
+fi
+
+# 1. Git mirrors (all refs and tags).
+declare -A REPOS=(
+  [hee4]=/mnt/storage-10tb/herdr-engineering-engine-v4
+  [loom-lattice-habitat]=/home/louranicas/loom-lattice-habitat
+  [deep-diff-forge]=/home/louranicas/deep-diff-forge
+  [firstmate]=/mnt/storage-10tb/firstmate
+)
+for name in "${!REPOS[@]}"; do
+  m="$DEST/git/$name.git"
+  if [ -d "$m" ]; then
+    git -C "$m" remote update --prune >/dev/null 2>&1; rc=$?
+  else
+    GIT_SSH_COMMAND="${SSH[*]}" git clone --mirror -q "$HOST:${REPOS[$name]}" "$m"; rc=$?
+  fi
+  [ "$rc" = 0 ] && { git -C "$m" fsck --no-progress --no-dangling >/dev/null 2>&1; rc=$?; }
+  note "git:$name" "$rc" "refs=$(git -C "$m" for-each-ref 2>/dev/null | wc -l)"
+done
+
+# 2. Dated snapshot of the files, hard-linked against the previous one.
+NEW="$DEST/snap/.partial-$STAMP"; PREV=""
+[ -d "$DEST/snap/latest" ] && PREV=$(readlink -f "$DEST/snap/latest")
+RS=(rsync -a --delete -e "${SSH[*]}")
+F=/mnt/storage-10tb/fedora-obsidian-vaults
+pull() { # <label> <remote path> <local subdir> [rsync args…]
+  local label=$1 src=$2 sub=$3; shift 3; mkdir -p "$NEW/$sub"
+  local link=(); [ -n "$PREV" ] && [ -d "$PREV/$sub" ] && link=(--link-dest="$PREV/$sub")
+  "${RS[@]}" "${link[@]}" "$@" "$HOST:$src" "$NEW/$sub/"; note "rsync:$label" $?
+}
+pull evidence /mnt/storage-10tb/hee4-evidence/ hee4-evidence --exclude 'db/*.db*'
+pull handoffs /mnt/storage-10tb/handoffs/ handoffs
+# v3 is fenced (V4-9): never copied. Plugin data.json can hold API keys: never copied.
+pull vaults "$F/" vaults --exclude 'herdr-engineering-engine-v3.vault/' \
+  --exclude '.obsidian/plugins/*/data.json' --exclude '.trash/' --exclude '*.bak-*'
+pull firstmate-data /mnt/storage-10tb/firstmate/data/ firstmate-data --exclude '*.db' --exclude '*.db-*'
+LB=$("${SSH[@]}" "$HOST" 'ls -1d /mnt/storage-10tb/hee4-backups/b-* | tail -n 1')
+[ -n "$LB" ] && pull engine-backup "$LB/" "hee4-backups/$(basename "$LB")"
+HB=$("${SSH[@]}" "$HOST" 'ls -1d ~/.local/share/hee4-habitat-backups/h-* | tail -n 1')
+[ -n "$HB" ] && pull habitat-bundle "$HB/" "habitat-backups/$(basename "$HB")"
+
+# 3. Consistent SQL dumps of the live databases (read-only connections; WAL-safe).
+mkdir -p "$NEW/db"
+declare -A DBS=(
+  [hee4-ops]=/mnt/storage-10tb/hee4-evidence/db/hee4-ops.db
+  [firstmate]=/mnt/storage-10tb/firstmate/data/firstmate.db
+  [habitat-ops]=/mnt/storage-10tb/firstmate/data/habitat-ops.db
+)
+for name in "${!DBS[@]}"; do
+  "${SSH[@]}" "$HOST" "sqlite3 -readonly 'file:${DBS[$name]}?mode=ro' .dump" | gzip -9 > "$NEW/db/$name.sql.gz"
+  rc=$((PIPESTATUS[0] + PIPESTATUS[1]))
+  [ "$rc" = 0 ] && { zcat "$NEW/db/$name.sql.gz" | tail -n 1 | grep -q '^COMMIT;$'; rc=$?; }
+  note "dump:$name" "$rc"
+done
+
+# 4. Restore checks: each mirror clones and each SQL dump loads with integrity ok.
+if [ "$fail" = 0 ]; then
+  RT=$(mktemp -d); for m in "$DEST"/git/*.git; do
+    git clone -q "$m" "$RT/$(basename "$m" .git)"; note "restore:$(basename "$m")" $?; done
+  for d in "$NEW"/db/*.sql.gz; do n=$(basename "$d" .sql.gz)
+    zcat "$d" | sqlite3 "$RT/$n.db" && [ "$(sqlite3 "$RT/$n.db" 'PRAGMA integrity_check')" = ok ]
+    note "restore:db:$n" $?; done
+  purge "$RT"
+fi
+
+# 5. Publish the snapshot only if every step passed; prune old snapshots.
+if [ "$fail" = 0 ]; then
+  mv "$NEW" "$DEST/snap/$STAMP" && ln -sfn "$STAMP" "$DEST/snap/latest"
+  while IFS= read -r old; do purge "$old"; done < <(find "$DEST/snap" -maxdepth 1 -name '2*Z' -type d -mtime +"$KEEP_DAYS")
+  find "$DEST/logs" -name 'pull-*.log' -mtime +"$KEEP_DAYS" -delete
+  echo "offsite verdict=PASS snapshot=$STAMP size=$(du -sh "$DEST/snap/$STAMP" | cut -f1) total=$(du -sh "$DEST" | cut -f1) log=$LOG"
+  exit 0
+fi
+echo "offsite verdict=FAIL failed_steps=$fail partial=$NEW (latest unchanged) log=$LOG"
+exit 1
