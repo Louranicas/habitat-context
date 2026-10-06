@@ -245,11 +245,15 @@ def ask(question, k=5, jev_only=False, scope=None, judge=False, snippets=False):
 PROBE = r"""
 fail=$(systemctl --user --failed --no-legend 2>/dev/null | awk '{print $2}' | grep -v xdg-document-portal | tr '\n' ' ')
 grep -q jev_axi_door "$HOME/.local/bin/jev-axi" 2>/dev/null && door=ok || door=BROKEN
+# Non-interactive SSH commands take PATH from pam_env (Arch bash never reads ~/.bashrc for them): wrappers in
+# ~/.local/bin (the Jev door, herdr 0.9.3) only win if that default starts with them.
+pp=$(grep -E '^PATH[[:space:]]+DEFAULT=' /etc/security/pam_env.conf 2>/dev/null | head -1)
+case "$pp" in *'DEFAULT=@{HOME}/.local/bin'*) ssh_path=ok;; '') ssh_path=unknown;; *) ssh_path=shadowed;; esac
 hee=$(systemctl --user is-active hee4.service 2>/dev/null)
 head=$(git -C "$HOME/herdr-engineering-engine-v4" rev-parse --short HEAD 2>/dev/null)
 dirty=$(git -C "$HOME/herdr-engineering-engine-v4" status --porcelain 2>/dev/null | wc -l)
 lav=$("$HOME/.local/bin/lavish-guard" 2>/dev/null | grep -o 'verdict=[A-Z]*')
-printf '{"failed_units":"%s","jev_door":"%s","hee4":"%s","hee4_head":"%s","hee4_dirty":%s,"lavish":"%s"}\n' "$fail" "$door" "$hee" "$head" "${dirty:-0}" "${lav#verdict=}"
+printf '{"failed_units":"%s","jev_door":"%s","hee4":"%s","hee4_head":"%s","hee4_dirty":%s,"lavish":"%s","ssh_path":"%s"}\n' "$fail" "$door" "$hee" "$head" "${dirty:-0}" "${lav#verdict=}" "$ssh_path"
 """
 
 
@@ -419,7 +423,7 @@ def brief():
     lp, how = live_probe(c)
     if lp:
         lines.append(f"LIVE ({how} {lp.get('at','?')}): jev door {lp['jev_door']}; hee4 {lp['hee4']} at {lp['hee4_head']} "
-                     f"with {lp['hee4_dirty']} uncommitted files; lavish-guard {lp['lavish'] or '?'}; "
+                     f"with {lp['hee4_dirty']} uncommitted files; lavish-guard {lp['lavish'] or '?'}; ssh PATH {lp.get('ssh_path', '?')}; "
                      f"failing units: {lp['failed_units'].strip() or 'none'}.")
         # Blockers are derived from the probe, never hard-coded (state is a query).
         block = []
@@ -427,6 +431,9 @@ def brief():
             block.append("Jev door broken: restore it from the node-bin copy and run selftest 24/24 (Jev tier down until then)")
         if int(lp.get("hee4_dirty") or 0) > 0:
             block.append(f"{lp['hee4_dirty']} uncommitted HEE files: the patch queue needs a desktop session (just gate commit)")
+        if lp.get("ssh_path") == "shadowed":
+            block.append("pam_env PATH puts /usr/bin and the mise shims before ~/.local/bin: SSH commands get the jev-axi "
+                         "shim and herdr 0.8.2 (sudo fix held for Luke)")
         if lp["hee4"] != "active":
             block.append(f"hee4.service is {lp['hee4']}")
         if (lp.get("lavish") or "") not in ("PASS", ""):
