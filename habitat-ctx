@@ -47,24 +47,26 @@ def _open_retry(path, **kw):
     raise RuntimeError(f"{os.path.basename(path)} busy (locked by another process)")
 
 
-RDB = os.path.join(os.path.dirname(DB), "receipts.db")
+RDB = os.environ.get("HABITAT_CTX_RECEIPTS", os.path.expanduser("~/.local/share/turso/context/receipts.db"))  # real home, independent of HABITAT_CTX_DB
 
 
 def rcon():
     """Receipts and the live-probe cache: habitat-ctx is this file's single writer."""
     c = _open_retry(RDB)
     c.execute("create table if not exists prime_receipts(id integer primary key, ts text, kind text,"
-              " query text, packet_sha text, items text)")
+              " query text, packet_sha text, items text, origin text)")
     c.execute("create table if not exists cache(key text primary key, value text)")
     c.commit()
     return c
 
 
 def receipt(_c, kind, query, text, items):
+    """Who saw what: origin is HABITAT_CTX_ORIGIN (e.g. 'eval', 'dev') or 'session' for real use."""
     c = rcon()
-    c.execute("insert into prime_receipts(ts,kind,query,packet_sha,items) values(?,?,?,?,?)",
+    c.execute("insert into prime_receipts(ts,kind,query,packet_sha,items,origin) values(?,?,?,?,?,?)",
               (time.strftime("%Y-%m-%dT%H:%M:%S%z"), kind, query,
-               hashlib.sha256(text.encode()).hexdigest()[:16], json.dumps(items)))
+               hashlib.sha256(text.encode()).hexdigest()[:16], json.dumps(items),
+               os.environ.get("HABITAT_CTX_ORIGIN", "session")))
     c.commit()
 
 

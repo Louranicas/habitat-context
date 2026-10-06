@@ -18,6 +18,8 @@ def opt(name, default):
 min1, min5 = int(opt("--min-hit1", 18)), int(opt("--min-hit5", 31))
 out_json = opt("--json", None)
 env = dict(os.environ)
+env.setdefault("HABITAT_CTX_RECEIPTS", "/tmp/habitat-ctx-eval-receipts.db")
+env.setdefault("HABITAT_CTX_ORIGIN", "eval")  # never pollute the real audit trail
 if "--fts-only" in args:
     args.remove("--fts-only"); env.update(HABITAT_CTX_NO_TUNNEL="1", HABITAT_CTX_EMB_URL="http://127.0.0.1:9/x")
     min1, min5 = min(min1, 12), min(min5, 28)
