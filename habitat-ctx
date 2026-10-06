@@ -6,6 +6,7 @@
                                hybrid retrieval: Turso FTS (BM25) + section embeddings (cosine),
                                fused by reciprocal rank; prints path#heading, score and jev_ok
   habitat-ctx stats            what the DB holds and when it was built
+  habitat-ctx refresh          off-site pull now, then the chained incremental context rebuild
 
 Embedding the question needs the desktop's ollama via `ssh -L 11435:127.0.0.1:11434
 desktop-native-tail`. Without it, ask degrades to FTS only and says so. Every brief and ask writes a
@@ -200,6 +201,8 @@ def ask(question, k=5, jev_only=False, scope=None, judge=False):
             out = [f"P(yes)={scores[i]:.2f}  " + out[i] for i in order] + out[5:]
             items = [items[i] for i in order] + items[5:]
             mode += f" + {JUDGE_MODEL} judge"
+            if max(scores) < 0.5:
+                mode += "  ABSTAIN (judge: no top-5 section answers this)"
         except Exception as e:
             mode += f" (judge unavailable: {type(e).__name__})"
     conf = "" if margin is None else (f"  top1_dist={top1:.3f} margin={margin:.3f}"
@@ -256,10 +259,18 @@ def brief():
                 status[st] = status.get(st, 0) + 1
     held = [l.split("|")[1].strip() for l in open(led, errors="replace")
             if l.startswith("| R-") and "held for Luke" in l] if os.path.exists(led) else []
+    stale = ""
+    try:
+        snap_t = time.mktime(time.strptime(built.get("snapshot", ""), "%Y%m%dT%H%M%SZ")) - time.timezone
+        age_h = (time.time() - snap_t) / 3600
+        if age_h > 26:
+            stale = f" STALE: the snapshot is {age_h:.0f} h old; run `habitat-ctx refresh`."
+    except Exception:
+        pass
     lines = [
         "# Habitat context: Quick context protocol v1 (herdr.habitat.vault/00 Start/Quick context protocol.md)",
         f"Context DB built {built.get('built_at','?')} from off-site snapshot {built.get('snapshot','?')}: "
-        f"{n} sections, {e} embedded. This card is a pointer; state is a query, so re-check live before acting.",
+        f"{n} sections, {e} embedded.{stale} This card is a pointer; state is a query, so re-check live before acting.",
         "WHERE: the habitat runs on the Canberra desktop (ssh desktop-native-tail); this laptop holds the off-site copy.",
         "1 ORIENT, stopping when covered: facet summaries (70 Facets) via `habitat-ctx ask`; Home and session state; "
         "the handoff and ledger; then the project entry (HEE: START.md, context-doctor, hee4db recipe restart).",
@@ -304,6 +315,9 @@ if __name__ == "__main__":
         ask(a[1], k, "--jev-only" in a, scope, "--judge" in a)
     elif a[0] == "stats":
         stats()
+    elif a[0] == "refresh":  # off-site pull, then the chained incremental context rebuild
+        import subprocess
+        sys.exit(subprocess.run(["systemctl", "--user", "start", "habitat-offsite-pull.service"]).returncode)
     else:
         print(__doc__)
         sys.exit(2)

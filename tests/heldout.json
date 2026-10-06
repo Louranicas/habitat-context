@@ -1,0 +1,336 @@
+{
+ "on": [
+  {
+   "q": "Tailscale is down but I'm on the same LAN as the desktop - which command gets me a shell over the fallback route?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/03 Remote access and SSH.md"
+   ],
+   "style": "how",
+   "deep": true
+  },
+  {
+   "q": "What happens if I try to restore the engine ledger into a directory that already has a ledger.sqlite3 in it?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/21 Backups mirrors and recovery.md"
+   ],
+   "style": "why",
+   "deep": true
+  },
+  {
+   "q": "Is it ok to just run mempalace mine from the top of the fedora-obsidian-vaults folder?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/12 MemPalace semantic memory.md"
+   ],
+   "style": "why",
+   "deep": true
+  },
+  {
+   "q": "herdr status tells me the server is 'compatible: no' and 'restart_needed: yes' - what's going on?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/02 herdr terminal floor.md"
+   ],
+   "style": "symptom",
+   "deep": true
+  },
+  {
+   "q": "What are the eight steps that run before a release tag can be laid on the engine?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/06 HEE v4 gate and verification spine.md"
+   ],
+   "style": "how",
+   "deep": true
+  },
+  {
+   "q": "I just landed in a fresh session with no memory of anything - what's the routine for getting my bearings quickly?",
+   "gold": [
+    "herdr.habitat.vault/00 Start/Quick context protocol.md"
+   ],
+   "style": "vague",
+   "deep": false
+  },
+  {
+   "q": "sqlite3 says 'malformed database schema ... USING' when I open the ops search db - how am I supposed to read it?",
+   "gold": [
+    "herdr.habitat.vault/10 Nexus/Databases.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "Can we leave this whole thing running unattended overnight yet, and what's still missing before we can?",
+   "gold": [
+    "herdr.habitat.vault/50 Ledger/Dark factory readiness.md"
+   ],
+   "style": "vague",
+   "deep": false
+  },
+  {
+   "q": "How do I make Ghostty the default terminal and undo it if it misbehaves?",
+   "gold": [
+    "herdr.habitat.vault/60 Terminal/Ghostty on Omarchy with herdr.md"
+   ],
+   "style": "how",
+   "deep": false
+  },
+  {
+   "q": "What stops someone from writing code that moves a task into an illegal state?",
+   "gold": [
+    "herdr.habitat.vault/30 Workflows/Verification map.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "Why do builds go under ~/.cache instead of /tmp on this box?",
+   "gold": [
+    "herdr.habitat.vault/20 Stack/End-to-end stack map.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "If the orchestrator's backend is set to herdr, why did nearly every recorded spawn run some other way?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/09 Firstmate orchestration.md"
+   ],
+   "style": "why",
+   "deep": true
+  },
+  {
+   "q": "Can I just run the install script in my home dir to get Julia and PyTorch working?",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/26 Numerical and scientific stack.md"
+   ],
+   "style": "why",
+   "deep": true
+  },
+  {
+   "q": "Clicking an obsidian://open link to the jev vault does nothing on the Omarchy desktop",
+   "gold": [
+    "herdr.habitat.vault/70 Facets/13 Obsidian vault system.md"
+   ],
+   "style": "symptom",
+   "deep": true
+  },
+  {
+   "q": "Why can't I compare a 0.8 from a three-option question with a 0.8 from a ten-option one?",
+   "gold": [
+    "jev.vault/10 Model/Confidence.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "roughly what does the typed judgment API charge - I saw 42 cents a million somewhere, is output billed too?",
+   "gold": [
+    "jev.vault/10 Model/Models Pricing and Aliases.md"
+   ],
+   "style": "vague",
+   "deep": false
+  },
+  {
+   "q": "The filter kept 0 of my notes even though grep finds the term in them - was it even looking at the whole file?",
+   "gold": [
+    "jev.vault/20 Findings/Read Gate Measurement 2026-09-29.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "After an npm update the jev-axi selftest fails 2 of 24 - why?",
+   "gold": [
+    "jev.vault/60 Habitat/Omarchy Install 2026-10-05.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "My keyword search finds the right document but it sits fifth in the list - how can Jev push it up?",
+   "gold": [
+    "jev.vault/90 Cookbooks/Re-ranking.md"
+   ],
+   "style": "how",
+   "deep": false
+  },
+  {
+   "q": "How do I get 'next Thursday' in some text turned into an actual calendar date?",
+   "gold": [
+    "jev.vault/90 Cookbooks/Date Extraction.md"
+   ],
+   "style": "how",
+   "deep": false
+  },
+  {
+   "q": "Should I just ask the model whether A and B are both true in one go?",
+   "gold": [
+    "jev.vault/20 Findings/Question Style Study 2026-09-23.md",
+    "jev.vault/20 Findings/Composition.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "What do I pipe a failing cargo build into to get a quick verdict from Jev?",
+   "gold": [
+    "jev.vault/30 Skills/jev-axi.md",
+    "toolshed.vault/10 Tools/jev-axi.md"
+   ],
+   "style": "how",
+   "deep": false
+  },
+  {
+   "q": "Something keeps changing the model on my subagent calls - which hook does that and where is its config?",
+   "gold": [
+    "jev.vault/70 Workflows/Jev Model Router 2026-09-29.md"
+   ],
+   "style": "where",
+   "deep": false
+  },
+  {
+   "q": "When a Jev answer disagrees with what the shell measured, which one do we go with?",
+   "gold": [
+    "turso.vault/50 Agent Knowledge System/Decision Rules.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "Where do the local LLM weights get stored now, and how do I go back to the old location?",
+   "gold": [
+    "turso.vault/50 Agent Knowledge System/Local model roster on 10 TB HDD 2026-10-06.md"
+   ],
+   "style": "where",
+   "deep": false
+  },
+  {
+   "q": "If I start the turso MCP server with --readonly, can it still write to other database files?",
+   "gold": [
+    "turso.vault/50 Agent Knowledge System/Turso SDK and MCP install 2026-10-06.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "Where is the read-only socket for the decision notebook database?",
+   "gold": [
+    "turso.vault/50 Agent Knowledge System/Operational Database.md"
+   ],
+   "style": "where",
+   "deep": false
+  },
+  {
+   "q": "what ground rules should we follow when giving agents tools that write to a database?",
+   "gold": [
+    "turso.vault/50 Agent Knowledge System/Herdr tool calling and deployment principles.md"
+   ],
+   "style": "vague",
+   "deep": false
+  },
+  {
+   "q": "Does the 0.7.2 tursodb binary have fts5, and which vector functions actually passed?",
+   "gold": [
+    "turso.vault/50 Agent Knowledge System/Schema Sketch.md"
+   ],
+   "style": "where",
+   "deep": true
+  },
+  {
+   "q": "fts_score returns 0.0 for every row when I pass the query as a parameter",
+   "gold": [
+    "turso.vault/30 Reference/Turso Capability Map and Commands.md"
+   ],
+   "style": "symptom",
+   "deep": true
+  },
+  {
+   "q": "My container won't start when I mount a host folder with :ro and :Z together",
+   "gold": [
+    "toolshed.vault/10 Tools/podman.md"
+   ],
+   "style": "symptom",
+   "deep": true
+  },
+  {
+   "q": "The desktop kept warning we were about to run out of file watchers - what limit did we raise and to what?",
+   "gold": [
+    "toolshed.vault/50 Field Notes/Linux Inotify Capacity - Herdr Habitat.md"
+   ],
+   "style": "vague",
+   "deep": true
+  },
+  {
+   "q": "claude mcp list just hangs forever",
+   "gold": [
+    "toolshed.vault/70 Toolkit/MCP Servers.md"
+   ],
+   "style": "symptom",
+   "deep": true
+  },
+  {
+   "q": "In Rust, what order should I try things in when I want to cut heap allocations?",
+   "gold": [
+    "toolshed.vault/40 Reference/Perfecting Rust - Performance Engineering.md"
+   ],
+   "style": "how",
+   "deep": true
+  },
+  {
+   "q": "I passed a script body to atuin's --script flag and it didn't work",
+   "gold": [
+    "toolshed.vault/10 Tools/atuin.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "The compositor IPC answered ok but the window never moved - can I trust that ack?",
+   "gold": [
+    "toolshed.vault/50 Field Notes/Hyprland 0.56 Lua IPC field findings.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "The /insights report link gives ERR_FILE_NOT_FOUND in the browser",
+   "gold": [
+    "toolshed.vault/60 Workflows/Insights Reports - Opening Them Past the Sandbox.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "Why do I get a warning whenever my bash command pipes into grep or tail?",
+   "gold": [
+    "toolshed.vault/60 Workflows/Claim-Time Guard.md"
+   ],
+   "style": "why",
+   "deep": false
+  },
+  {
+   "q": "bacon --headless never returns and hung my check script",
+   "gold": [
+    "toolshed.vault/10 Tools/bacon.md"
+   ],
+   "style": "symptom",
+   "deep": false
+  },
+  {
+   "q": "I've been handed a huge repo or vault I didn't write - what should the first hour look like?",
+   "gold": [
+    "toolshed.vault/60 Workflows/Entering an Unfamiliar Corpus.md"
+   ],
+   "style": "vague",
+   "deep": false
+  }
+ ],
+ "off": [
+  "What's a good recipe for sourdough bread with a stiff starter?",
+  "How do I get red wine out of a carpet?",
+  "What time does the sun set in Reykjavik in December?",
+  "Who won the 2018 FIFA World Cup?",
+  "How often should I water a fiddle leaf fig?",
+  "What's the best way to train for a first half marathon?",
+  "How do I configure a Kubernetes HorizontalPodAutoscaler to scale on custom Prometheus metrics?",
+  "How do I set up a Terraform remote state backend in AWS S3 with DynamoDB locking?"
+ ]
+}

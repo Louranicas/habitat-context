@@ -19,7 +19,7 @@ import turso
 
 HOME = os.path.expanduser("~")
 SNAP = os.path.join(HOME, "Backups/herdr-habitat-offsite/snap/latest/vaults")
-DB = os.path.join(HOME, ".local/share/turso/context/habitat-context.db")
+DB = os.environ.get("HABITAT_CTX_DB", os.path.join(HOME, ".local/share/turso/context/habitat-context.db"))
 REMOTE_VAULTS = "/mnt/storage-10tb/fedora-obsidian-vaults"
 EMB_URL = "http://127.0.0.1:{port}/v1/embeddings"
 EMB_MODEL = "qwen3-embedding:0.6b"
@@ -28,7 +28,7 @@ PRIORITY = {"herdr.habitat.vault", "herdr-engineering-engine-v4.vault", "jev.vau
             "herdr-habitat-orchistration.vault", "toolshed.vault"}
 FENCED = ("herdr-engineering-engine-v3.vault",)
 MAX_SECTION = 2000
-BUILD_VERSION = "3"  # v3: frontmatter stripped; contextual chunks embedded; FTS on body only
+BUILD_VERSION = "4"  # v4: + one note card per note (title, opening summary, heading outline); v3: contextual chunks, body FTS
 FTS_COLS = "body"   # held-out (n=40, 2026-10-06): body-only FTS 14/29/30 @1/3/5; (ctx,body) 13/24/25; (ctx,body) ctx=2 10/17/21
 
 
@@ -38,6 +38,16 @@ def strip_frontmatter(text):
         if end != -1:
             return text[end + 4:]
     return text
+
+
+def note_card(title, text):
+    """One row per note for whole-note questions (held-out misses were all 'what is this note for'):
+    the title, the opening prose before the first heading, and the outline of headings."""
+    body = strip_frontmatter(text)
+    first = re.split(r"\n#{1,3} ", "\n" + body, maxsplit=2)
+    opening = " ".join(x for x in first[:2] if x).strip()[:900]
+    outline = " | ".join(h.strip() for h in re.findall(r"^#{1,3} (.+)$", body, re.M))[:600]
+    return f"{title}\n{opening}\nSections: {outline}"
 
 
 def sections_of(text):
@@ -133,11 +143,15 @@ def main():
         vault = rel.split("/", 1)[0]
         cur.execute("delete from sections where path=?", (rel,))
         title = os.path.splitext(os.path.basename(rel))[0]
-        for head, body in sections_of(open(f, errors="replace").read()):
+        text = open(f, errors="replace").read()
+        rows.append([vault, rel, "[note]", note_card(title, text), sha, int(bool(elig.get(rel))), None,
+                     f"{vault.replace('.vault', '')} > {title} / note summary"])
+        for head, body in sections_of(text):
             ctx = f"{vault.replace('.vault', '')} > {title} / {head}"
             rows.append([vault, rel, head, body, sha, int(bool(elig.get(rel))), None, ctx])
         cur.execute("insert or replace into notes values(?,?,?,?)", (rel, vault, sha, os.path.getmtime(f)))
-    todo = [r for r in rows if r[0] in PRIORITY] if not a.no_embed else []
+    embed_all = os.environ.get("HABITAT_EMBED_ALL") == "1"  # experiment switch: embed every vault
+    todo = [r for r in rows if embed_all or r[0] in PRIORITY] if not a.no_embed else []
     if todo:
         vecs = embed([f"{r[7]}\n{r[3]}" for r in todo], a.port)
         for r, v in zip(todo, vecs):
