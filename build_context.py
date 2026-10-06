@@ -108,16 +108,35 @@ def d2q_for(changed, port):
             return rel, sha, d2q_questions(os.path.splitext(os.path.basename(rel))[0], open(f, errors="replace").read(), port)
         except Exception:
             return rel, sha, None
+    failed = 0
     with cf.ThreadPoolExecutor(3) as ex:
         for rel, sha, qs in ex.map(gen, todo):
             if qs:
                 have[rel] = qs
                 cache.execute("insert or replace into d2q values(?,?,?)", (rel, sha, json.dumps(qs)))
+            else:
+                failed += 1
     cache.commit()
     cache.close()
     del cache
-    print(f"doc2query: {len(want)} notes, {len(want) - len(todo)} cached, {len(todo)} generated", flush=True)
+    print(f"doc2query: {len(want)} notes, {len(want) - len(todo)} cached, {len(todo) - failed} generated, {failed} failed", flush=True)
+    if todo and failed > len(todo) // 2:
+        sys.exit(f"doc2query: {failed}/{len(todo)} generations failed (is the local model up?); not publishing")
     return have
+
+
+def prune_d2q(current_sha):
+    """Bounded cache: drop question rows for notes that are gone or whose content changed."""
+    if not os.path.exists(D2Q_CACHE):
+        return
+    c = turso.connect(D2Q_CACHE)
+    rows = c.execute("select path, sha from d2q").fetchall()
+    stale = [(p, h) for p, h in rows if current_sha.get(p) != h]
+    for p, h in stale:
+        c.execute("delete from d2q where path=? and sha=?", (p, h))
+    c.commit(); c.close(); del c
+    if stale:
+        print(f"doc2query cache: pruned {len(stale)} stale rows", flush=True)
 
 
 def jev_eligible(rel_paths):
@@ -132,7 +151,8 @@ def jev_eligible(rel_paths):
               "print(json.dumps(res))\n") % REMOTE_VAULTS
     # Never pass code through `ssh host python3 -c …`: the remote shell re-parses it (the 2026-10-06
     # door clobber). Ship the checker as a file into the desktop test cache, then run it by path.
-    local = os.path.join(os.path.dirname(DB), "elig_check.py")
+    cdir = os.path.join(HOME, ".cache", "habitat-context"); os.makedirs(cdir, exist_ok=True)
+    local = os.path.join(cdir, "elig_check.py")
     with open(local, "w") as fh:
         fh.write(script)
     if ON_DESKTOP:  # the boundary is local here
@@ -183,10 +203,11 @@ def main():
     files = [f for f in glob.glob(os.path.join(SNAP, "*.vault", "**", "*.md"), recursive=True)
              if not any(x in f for x in FENCED) and "/.obsidian/" not in f and "/.trash/" not in f
              and "/_sources/" not in f]  # raw doc captures duplicate "90 Source Docs" (measured noise)
-    changed, seen = [], set()
+    changed, seen, current_sha = [], set(), {}
     for f in files:
         rel = os.path.relpath(f, SNAP); seen.add(rel)
         sha = hashlib.sha256(open(f, "rb").read()).hexdigest()
+        current_sha[rel] = sha
         if have.get(rel) != sha:
             changed.append((rel, f, sha))
     gone = [p for p in have if p not in seen]
@@ -226,6 +247,7 @@ def main():
         cur.execute(f"create index if not exists sections_fts on sections using fts({FTS_COLS})")
     except Exception as e:
         print("fts index:", e)
+    prune_d2q(current_sha)
     snap = "live" if ON_DESKTOP else os.path.basename(os.path.realpath(os.path.join(SNAP, "..")))
     for k, v in {"built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "snapshot": snap,
                  "emb_model": EMB_MODEL, "tursodb": "0.8.1", "build_version": BUILD_VERSION, "fts_cols": FTS_COLS}.items():

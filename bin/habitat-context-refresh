@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Writes last-refresh.json (ts, verdict, rc, summary) so a failed refresh is visible in the brief and doctor.
 # habitat-context-refresh — incremental rebuild of the Turso context DB after the off-site pull (R-095).
 # Opens its own SSH forward to the desktop's ollama for embeddings (compute only), then closes it by PID.
 # Read-only toward the desktop. Last line: `context verdict=PASS|FAIL ...`.
@@ -6,7 +7,9 @@ set -uo pipefail
 if [ -d /mnt/storage-10tb/fedora-obsidian-vaults ]; then  # on the desktop: ollama is local, no tunnel
   cd "$HOME/.local/share/turso/context" || exit 1
   out=$("$HOME/.local/share/turso/sdk-venv/bin/python" build_context.py --port 11434 2>&1); rc=$?
-  echo "$out" | tail -3; [ "$rc" = 0 ] && echo "context verdict=PASS" || echo "context verdict=FAIL rc=$rc"; exit "$rc"
+  echo "$out" | tail -3; [ "$rc" = 0 ] && v=PASS || v=FAIL; echo "context verdict=$v rc=$rc"
+  python3 -c 'import json,sys,time;json.dump({"ts":time.strftime("%Y-%m-%dT%H:%M:%S%z"),"verdict":sys.argv[1],"rc":int(sys.argv[2]),"summary":sys.argv[3]},open(sys.argv[4],"w"))' "$v" "$rc" "$(echo "$out" | tail -1)" "$HOME/.local/share/turso/context/last-refresh.json"
+  exit "$rc"
 fi
 PORT=11436
 ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -L "$PORT:127.0.0.1:11434" desktop-native-tail &
@@ -16,5 +19,6 @@ for _ in $(seq 1 20); do curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/v1/mo
 cd "$HOME/.local/share/turso/context" || exit 1
 out=$("$HOME/.local/share/turso/sdk-venv/bin/python" build_context.py --port "$PORT" 2>&1); rc=$?
 echo "$out" | tail -3
-[ "$rc" = 0 ] && echo "context verdict=PASS" || echo "context verdict=FAIL rc=$rc"
+[ "$rc" = 0 ] && v=PASS || v=FAIL; echo "context verdict=$v rc=$rc"
+python3 -c 'import json,sys,time;json.dump({"ts":time.strftime("%Y-%m-%dT%H:%M:%S%z"),"verdict":sys.argv[1],"rc":int(sys.argv[2]),"summary":sys.argv[3]},open(sys.argv[4],"w"))' "$v" "$rc" "$(echo "$out" | tail -1)" "$HOME/.local/share/turso/context/last-refresh.json"
 exit "$rc"

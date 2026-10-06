@@ -29,11 +29,13 @@ SNAP = "/mnt/storage-10tb/fedora-obsidian-vaults" if os.path.isdir("/mnt/storage
 RRF_K = 60
 
 
-def con():
+def con(quiet=False):
     """Context DB: READ ONLY by convention (pyturso has no read-only mode). Only build_context.py writes,
     and only to an unpublished copy that is atomically renamed into place."""
-    if not os.path.exists(DB):  # never create an empty DB from a startup hook
-        sys.exit(0)
+    if not os.path.exists(DB):  # never create an empty DB; a startup hook stays quiet, a user command does not
+        if quiet:
+            sys.exit(0)
+        sys.exit(f"habitat-ctx: no context DB at {DB}; run habitat-context-refresh")
     return _open_retry(DB, experimental_features="index_method")
 
 
@@ -61,6 +63,8 @@ def rcon():
     c.execute("create table if not exists prime_receipts(id integer primary key, ts text, kind text,"
               " query text, packet_sha text, items text, origin text)")
     c.execute("create table if not exists cache(key text primary key, value text)")
+    # Bounded audit trail: keep 90 days of receipts (ts is ISO 8601, so it sorts as text)
+    c.execute("delete from prime_receipts where ts < ?", (time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 90 * 86400)),))
     c.commit()
     return c
 
@@ -269,7 +273,7 @@ def live_probe(c, timeout=4):
 
 def brief():
     try:
-        c = con()
+        c = con(quiet=True)
     except RuntimeError as e:
         print(f"# Habitat context: the context DB is busy ({e}). Read herdr.habitat.vault/00 Start/Quick context protocol.md "
               "and run `habitat-ctx brief` again shortly. State is a query: check live before acting.")
@@ -314,6 +318,16 @@ def brief():
         f"Ledger: {', '.join(f'{v} {k}' for k, v in sorted(status.items(), key=lambda x: -x[1])[:5])}. "
         f"Held for Luke: {', '.join(held[:12])}.",
     ]
+    lr = os.path.join(os.path.dirname(os.path.realpath(__file__)), "last-refresh.json")  # realpath: run via a symlink
+    try:
+        r = json.load(open(lr))
+        if r.get("verdict") != "PASS":
+            lines.append(f"CONTEXT REFRESH FAILED at {r.get('ts')} (rc={r.get('rc')}): {r.get('summary','')[:120]}. "
+                         "This card may be stale; run habitat-context-refresh.")
+    except FileNotFoundError:
+        pass
+    except Exception:
+        lines.append("CONTEXT REFRESH status unreadable (last-refresh.json); run habitat-context-refresh.")
     lp, how = live_probe(c)
     if lp:
         lines.append(f"LIVE ({how} {lp.get('at','?')}): jev door {lp['jev_door']}; hee4 {lp['hee4']} at {lp['hee4_head']} "
