@@ -33,6 +33,16 @@ It runs on both machines and is host-aware:
 | Startup brief | about 1.0 s |
 | Read-set guarantee (conformal) | top 3 ≥ 70%, top 4 ≥ 80% |
 
+**How much to trust v5 over v3:** this is a paired bootstrap at n=40, and the harness is deterministic (identical ranks on repeat runs).
+
+| Measure | v5 − v3 | 95% CI | Wins / losses |
+|---|---|---|---|
+| @1 | −1 | [−5, +2] | 1 / 2 |
+| @3 | +2 | [0, +5] | 2 / 0 |
+| @5 | +2 | [−2, +6] | 3 / 1 |
+
+The @3 gain is plausible. The @5 gain is not established. Grow the set with `habitat-ctx label` before tuning further.
+
 ## Files
 
 | Path | Role |
