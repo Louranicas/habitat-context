@@ -6,6 +6,7 @@
                                hybrid retrieval: Turso FTS (BM25) + section embeddings (cosine),
                                fused by reciprocal rank; prints path#heading, score and jev_ok
   habitat-ctx stats            what the DB holds and when it was built
+  habitat-ctx doctor [--full]  one verdict over DB, versions, freshness, pins, embeddings, timers, hooks, MCP denies (+ eval)
   habitat-ctx refresh          off-site pull now, then the chained incremental context rebuild
   habitat-ctx label "<question>" "<vault/path.md>"   record which note answered (feeds tests/eval_heldout.py --with-labels)
 
@@ -271,6 +272,93 @@ def live_probe(c, timeout=4):
         return (json.loads(row[0]), "cached") if row else (None, "unavailable")
 
 
+TURSODB = os.path.expanduser("~/.local/share/turso/0.8.1/tursodb")
+TURSODB_SHA_PREFIX = "57f21919"  # pinned 0.8.1 (turso.vault qualification, Poteto Weave pin)
+
+
+def doctor(full=False):
+    """One verdict over everything production depends on. Exit 0 = PASS/WARN only, 1 = any FAIL."""
+    import hashlib as _h, importlib.metadata as _md, subprocess
+    res = []
+    def chk(name, ok, detail="", warn=False):
+        res.append(("PASS" if ok else ("WARN" if warn else "FAIL"), name, detail))
+    here = os.path.dirname(os.path.realpath(__file__))
+    # 1. DB and version agreement
+    chk("context DB present", os.path.exists(DB), DB)
+    code_v = re.search(r'^BUILD_VERSION = "(\d+)"', open(os.path.join(here, "build_context.py")).read(), re.M)
+    side = open(DB + ".version").read().strip() if os.path.exists(DB + ".version") else None
+    meta = {}
+    if os.path.exists(DB):
+        c = _open_retry(DB, experimental_features="index_method")
+        meta = dict(c.execute("select key, value from meta").fetchall())
+        chk("context DB integrity", c.execute("pragma integrity_check").fetchone()[0] == "ok")
+        c.close(); del c
+    cv = code_v.group(1) if code_v else None
+    chk("build version agrees (code, sidecar, meta)", cv == side == meta.get("build_version"), f"{cv}/{side}/{meta.get('build_version')}")
+    for f, kw in ((RDB, {}), (os.path.join(here, "d2q-cache.db"), {})):
+        if os.path.exists(f):
+            c = _open_retry(f, **kw); ok = c.execute("pragma integrity_check").fetchone()[0] == "ok"; c.close(); del c
+            chk(f"{os.path.basename(f)} integrity", ok)
+    # 2. freshness
+    try:
+        lr = json.load(open(os.path.join(here, "last-refresh.json")))
+        age = (time.time() - time.mktime(time.strptime(lr["ts"][:19], "%Y-%m-%dT%H:%M:%S"))) / 3600
+        chk("last refresh PASS", lr.get("verdict") == "PASS", f"{lr.get('ts')} {lr.get('summary','')[:60]}")
+        chk("last refresh under 30 h old", age < 30, f"{age:.1f} h", warn=True)
+    except Exception as e:
+        chk("last refresh recorded", False, f"{type(e).__name__}", warn=True)
+    if not ON_DESKTOP and meta.get("snapshot", "").endswith("Z"):
+        sage = (time.time() - (time.mktime(time.strptime(meta["snapshot"], "%Y%m%dT%H%M%SZ")) - time.timezone)) / 3600
+        chk("snapshot under 26 h old", sage < 26, f"{sage:.1f} h", warn=True)
+    # 3. pinned dependencies
+    try:
+        sha = _h.sha256(open(TURSODB, "rb").read()).hexdigest()
+        chk("tursodb 0.8.1 pinned binary", sha.startswith(TURSODB_SHA_PREFIX), sha[:12])
+    except OSError as e:
+        chk("tursodb 0.8.1 pinned binary", False, str(e))
+    try:
+        chk("pyturso 0.8.1", _md.version("pyturso") == "0.8.1", _md.version("pyturso"))
+    except Exception as e:
+        chk("pyturso version", False, str(e))
+    # 4. embeddings reachable (persistent forward on the laptop, local on the desktop)
+    try:
+        v = _embed_at(EMB, "doctor probe")
+        chk("embedding endpoint", len(v) > 100, f"{EMB} dim={len(v)}")
+    except Exception as e:
+        chk("embedding endpoint", False, f"{EMB} {type(e).__name__}", warn=True)  # ask falls back
+    # 5. timers / services
+    units = (["habitat-context-refresh.timer"] if ON_DESKTOP
+             else ["habitat-offsite-pull.timer", "habitat-embed-tunnel.service"])
+    for u in units:
+        st = subprocess.run(["systemctl", "--user", "is-active", u], capture_output=True, text=True).stdout.strip()
+        chk(f"{u} active", st == "active", st)
+    # 6. hook and MCP guard rails
+    try:
+        s = json.load(open(os.path.expanduser("~/.claude/settings.json")))
+        hooks = [h.get("command", "") for g in s.get("hooks", {}).get("SessionStart", []) for h in g.get("hooks", [])]
+        chk("SessionStart brief hook", any("habitat-ctx brief" in h for h in hooks))
+        deny = set(s.get("permissions", {}).get("deny", []))
+        need = {f"mcp__habitat-context__{x}" for x in ("open_database", "insert_data", "update_data", "delete_data", "schema_change")}
+        chk("MCP write/escape tools denied", need <= deny, f"missing {sorted(need - deny)}" if need - deny else "")
+    except Exception as e:
+        chk("settings readable", False, str(e))
+    # 7. no stale partial builds (> 2 h)
+    stale = [f for f in os.listdir(here) if ".building" in f and time.time() - os.path.getmtime(os.path.join(here, f)) > 7200]
+    chk("no stale partial builds", not stale, ", ".join(stale))
+    # 8. optional regression gate
+    if full:
+        env = dict(os.environ, HABITAT_CTX_RECEIPTS="/tmp/habitat-ctx-doctor-receipts.db", HABITAT_CTX_ORIGIN="eval")
+        r = subprocess.run([sys.executable, os.path.join(here, "tests", "eval_heldout.py")], capture_output=True, text=True, env=env)
+        last = (r.stdout.strip().splitlines() or ["?"])[-1]
+        chk("regression gate (held-out)", r.returncode == 0, last)
+    for s_, n, d in res:
+        print(f"{s_:4s}  {n}" + (f"  ({d})" if d else ""))
+    fails = sum(1 for s_, _, _ in res if s_ == "FAIL"); warns = sum(1 for s_, _, _ in res if s_ == "WARN")
+    verdict = "FAIL" if fails else ("PASS_WITH_WARNINGS" if warns else "PASS")
+    print(f"doctor verdict={verdict} checks={len(res)} fail={fails} warn={warns} host={'desktop' if ON_DESKTOP else 'laptop'}")
+    return 1 if fails else 0
+
+
 def brief():
     try:
         c = con(quiet=True)
@@ -369,6 +457,8 @@ if __name__ == "__main__":
         ask(a[1], k, "--jev-only" in a, scope, "--judge" in a, "--snippets" in a)
     elif a[0] == "stats":
         stats()
+    elif a[0] == "doctor":
+        sys.exit(doctor("--full" in a))
     elif a[0] == "label" and len(a) > 2:  # grow the eval set from real use: which note actually answered
         r = rcon()
         r.execute("create table if not exists labels(id integer primary key, ts text, question text, gold text, origin text)")
