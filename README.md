@@ -29,7 +29,8 @@ It runs on both machines and is host-aware:
 | Never retrieved | 4 |
 | Off-topic abstained | 7/8 (the near-miss Terraform question is not) |
 | FTS-only fallback, @1 / @5 | 15 / 30 |
-| Latency | about 0.55 s per `ask` (persistent forward) |
+| Latency | about 0.55 s per `ask` on the laptop (persistent forward); 0.12 s on the desktop (local GPU) |
+| `--judge` latency | about 3.6 s on the laptop; about 1.3 s warm on the desktop (6.2 s cold model load) |
 | Startup brief | about 1.0 s |
 | Read-set guarantee (conformal) | top 3 ≥ 70%, top 4 ≥ 80% |
 
