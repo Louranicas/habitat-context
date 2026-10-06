@@ -31,12 +31,9 @@ PRIORITY = {"herdr.habitat.vault", "herdr-engineering-engine-v4.vault", "jev.vau
             "herdr-habitat-orchistration.vault", "toolshed.vault"}
 FENCED = ("herdr-engineering-engine-v3.vault",)
 MAX_SECTION = 2000
-BUILD_VERSION = "6"  # v6: doc2query extended to turso.vault curated folders; v5: + doc2query rows (local model: 5 plain-language questions per note, cached by sha); v4 note cards; v3 contextual chunks, body FTS
+BUILD_VERSION = "5"  # v5: + doc2query rows (local model: 5 plain-language questions per note, cached by sha); v4 note cards; v3 contextual chunks, body FTS
 # Held-out (n=40, 2026-10-06): v3 20/28/33/35, v4 21/29/33/35, v4+doc2query 21/31/35/36 @1/3/5/10; misses 5 -> 4.
 D2Q_VAULTS = {"herdr.habitat.vault", "jev.vault", "toolshed.vault", "herdr-habitat-orchistration.vault", "herdr-engineering-engine-v4.vault"}
-# Curated turso.vault folders only (the raw '90 Source Docs' copies are many and low value); v5's one held-out
-# regression was a turso question.
-D2Q_PREFIXES = ("turso.vault/50 Agent Knowledge System/", "turso.vault/30 Reference/", "turso.vault/20 Build Guides/")
 D2Q_MODEL = "gemma4:12b"
 D2Q_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "d2q-cache.db")  # builder-only writer
 FTS_COLS = "body"   # held-out (n=40, 2026-10-06): body-only FTS 14/29/30 @1/3/5; (ctx,body) 13/24/25; (ctx,body) ctx=2 10/17/21
@@ -97,8 +94,7 @@ def d2q_for(changed, port):
     import concurrent.futures as cf
     cache = turso.connect(D2Q_CACHE)
     cache.execute("create table if not exists d2q(path text, sha text, questions text, primary key(path, sha))")
-    want = [(rel, f, sha) for rel, f, sha in changed
-            if rel.split("/", 1)[0] in D2Q_VAULTS or rel.startswith(D2Q_PREFIXES)]
+    want = [(rel, f, sha) for rel, f, sha in changed if rel.split("/", 1)[0] in D2Q_VAULTS]
     have = {}
     for rel, f, sha in want:
         row = cache.execute("select questions from d2q where path=? and sha=?", (rel, sha)).fetchone()
