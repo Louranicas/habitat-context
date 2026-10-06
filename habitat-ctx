@@ -28,7 +28,22 @@ def con():
     and only to an unpublished copy that is atomically renamed into place."""
     if not os.path.exists(DB):  # never create an empty DB from a startup hook
         sys.exit(0)
-    return turso.connect(DB, experimental_features="index_method")
+    return _open_retry(DB, experimental_features="index_method")
+
+
+def _open_retry(path, **kw):
+    """pyturso 0.8.1 locks a DB file exclusively per process, even for readers (MEASURED 2026-10-06).
+    Retry briefly so concurrent sessions queue instead of failing."""
+    delay = 0.05
+    for _ in range(12):  # about 3 s in total
+        try:
+            return turso.connect(path, **kw)
+        except Exception as e:
+            if "lock" not in str(e).lower():
+                raise
+            time.sleep(delay)
+            delay = min(delay * 1.6, 0.5)
+    raise RuntimeError(f"{os.path.basename(path)} busy (locked by another process)")
 
 
 RDB = os.path.join(os.path.dirname(DB), "receipts.db")
@@ -36,7 +51,7 @@ RDB = os.path.join(os.path.dirname(DB), "receipts.db")
 
 def rcon():
     """Receipts and the live-probe cache: habitat-ctx is this file's single writer."""
-    c = turso.connect(RDB)
+    c = _open_retry(RDB)
     c.execute("create table if not exists prime_receipts(id integer primary key, ts text, kind text,"
               " query text, packet_sha text, items text)")
     c.execute("create table if not exists cache(key text primary key, value text)")
@@ -112,7 +127,9 @@ def ask(question, k=5, jev_only=False, scope=None):
         try:
             # fts_score also reads 0.0 when any other predicate shares the WHERE (MEASURED): query bare,
             # then apply scope and jev filters in Python.
-            rows = c.execute(f"select id, fts_score(body, {lit}) s from sections where fts_match(body, {lit})"
+            bv = (c.execute("select value from meta where key='build_version'").fetchone() or ["1"])[0]
+            cols = "ctx, body" if bv == "2" else "body"
+            rows = c.execute(f"select id, fts_score({cols}, {lit}) s from sections where fts_match({cols}, {lit})"
                              f" order by s desc limit 400").fetchall()
             keep = []
             for i, _ in rows:
@@ -190,7 +207,12 @@ def live_probe(c, timeout=4):
 
 
 def brief():
-    c = con()
+    try:
+        c = con()
+    except RuntimeError as e:
+        print(f"# Habitat context: the context DB is busy ({e}). Read herdr.habitat.vault/00 Start/Quick context protocol.md "
+              "and run `habitat-ctx brief` again shortly. State is a query: check live before acting.")
+        return
     built = dict(c.execute("select key, value from meta").fetchall())
     n, e = c.execute("select count(*), count(emb) from sections").fetchone()
     led = os.path.join(SNAP, "herdr.habitat.vault/50 Ledger/Recommendations ledger.md")

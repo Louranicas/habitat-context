@@ -28,10 +28,19 @@ PRIORITY = {"herdr.habitat.vault", "herdr-engineering-engine-v4.vault", "jev.vau
             "herdr-habitat-orchistration.vault", "toolshed.vault"}
 FENCED = ("herdr-engineering-engine-v3.vault",)
 MAX_SECTION = 2000
+BUILD_VERSION = "2"  # v2: frontmatter stripped; contextual chunks (vault > title / heading); ctx FTS column
+
+
+def strip_frontmatter(text):
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            return text[end + 4:]
+    return text
 
 
 def sections_of(text):
-    for part in re.split(r"\n(?=#{1,3} )", text):
+    for part in re.split(r"\n(?=#{1,3} )", strip_frontmatter(text)):
         part = part.strip()
         if len(part) < 80:
             continue
@@ -86,7 +95,11 @@ def main():
     for ext in ("", "-wal", "-shm"):
         if os.path.exists(work + ext):
             os.remove(work + ext)
-    if os.path.exists(DB):
+    # Never open the live file here: pyturso holds an exclusive lock until the object is released, which
+    # would lock readers out for the whole build. The version lives in a sidecar written at publish.
+    vfile = DB + ".version"
+    prev_version = open(vfile).read().strip() if os.path.exists(vfile) else None
+    if os.path.exists(DB) and prev_version == BUILD_VERSION:
         shutil.copy2(DB, work)
         if os.path.exists(DB + "-wal") and os.path.getsize(DB + "-wal") > 0:
             shutil.copy2(DB + "-wal", work + "-wal")
@@ -94,7 +107,7 @@ def main():
     cur = con.cursor()
     cur.execute("create table if not exists notes(path text primary key, vault text, sha text, mtime real)")
     cur.execute("create table if not exists sections(id integer primary key, vault text, path text, heading text,"
-                " body text, sha text, jev_ok integer, emb blob)")
+                " body text, sha text, jev_ok integer, emb blob, ctx text)")
     cur.execute("create table if not exists meta(key text primary key, value text)")
     cur.execute("drop table if exists prime_receipts")  # receipts live in receipts.db (single writer: habitat-ctx)
     cur.execute("delete from meta where key='live_probe'")
@@ -118,27 +131,29 @@ def main():
     for rel, f, sha in changed:
         vault = rel.split("/", 1)[0]
         cur.execute("delete from sections where path=?", (rel,))
+        title = os.path.splitext(os.path.basename(rel))[0]
         for head, body in sections_of(open(f, errors="replace").read()):
-            rows.append([vault, rel, head, body, sha, int(bool(elig.get(rel))), None])
+            ctx = f"{vault.replace('.vault', '')} > {title} / {head}"
+            rows.append([vault, rel, head, body, sha, int(bool(elig.get(rel))), None, ctx])
         cur.execute("insert or replace into notes values(?,?,?,?)", (rel, vault, sha, os.path.getmtime(f)))
     todo = [r for r in rows if r[0] in PRIORITY] if not a.no_embed else []
     if todo:
-        vecs = embed([f"{r[2]}\n{r[3]}" for r in todo], a.port)
+        vecs = embed([f"{r[7]}\n{r[3]}" for r in todo], a.port)
         for r, v in zip(todo, vecs):
             r[6] = json.dumps(v)
     for r in rows:
         if r[6] is None:
-            cur.execute("insert into sections(vault,path,heading,body,sha,jev_ok,emb) values(?,?,?,?,?,?,NULL)", r[:6])
+            cur.execute("insert into sections(vault,path,heading,body,sha,jev_ok,emb,ctx) values(?,?,?,?,?,?,NULL,?)", r[:6] + [r[7]])
         else:
-            cur.execute("insert into sections(vault,path,heading,body,sha,jev_ok,emb) values(?,?,?,?,?,?,vector32(?))", r)
+            cur.execute("insert into sections(vault,path,heading,body,sha,jev_ok,emb,ctx) values(?,?,?,?,?,?,vector32(?),?)", r)
     con.commit()
     try:
-        cur.execute("create index if not exists sections_fts on sections using fts(body)")
+        cur.execute("create index if not exists sections_fts on sections using fts(ctx, body) with (weights='ctx=2,body=1')")
     except Exception as e:
         print("fts index:", e)
     snap = os.path.realpath(os.path.join(SNAP, ".."))
     for k, v in {"built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "snapshot": os.path.basename(snap),
-                 "emb_model": EMB_MODEL, "tursodb": "0.8.1"}.items():
+                 "emb_model": EMB_MODEL, "tursodb": "0.8.1", "build_version": BUILD_VERSION}.items():
         cur.execute("insert or replace into meta values(?,?)", (k, v))
     con.commit()
     n, e, j = cur.execute("select count(*), count(emb), sum(jev_ok) from sections").fetchone()
@@ -151,6 +166,9 @@ def main():
     if os.path.exists(work + "-wal"):
         sys.exit("checkpoint left WAL frames; not publishing")
     os.replace(work, DB)  # atomic publish
+    with open(DB + ".version.tmp", "w") as fh:
+        fh.write(BUILD_VERSION + "\n")
+    os.replace(DB + ".version.tmp", DB + ".version")
     # A WAL beside the live name belongs to the previous generation (the live file has no writer), and
     # would be replayed over the new file by the next opener. Remove it as part of publishing.
     for ext in ("-wal", "-shm"):
