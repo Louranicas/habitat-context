@@ -114,9 +114,9 @@ def embed(q):
 
 CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", _OLLAMA + "/v1/chat/completions")
 JUDGE_MODEL = os.environ.get("HABITAT_CTX_JUDGE", "gemma4:12b")
-# Split-conformal read-set sizes from the independent held-out set (n=40, index v3, 2026-10-06).
-# Recompute whenever the index or ranking changes.
-READ_K = {"70%": 4, "80%": 5}
+# Split-conformal read-set sizes from the independent held-out set (n=40, index v5, 2026-10-06).
+# Recompute whenever the index or ranking changes (v3 was 4 / 5).
+READ_K = {"70%": 3, "80%": 4}
 
 
 def p_yes(question, text):
@@ -297,7 +297,7 @@ def brief():
         "the handoff and ledger; then the project entry (HEE: START.md, context-doctor, hee4db recipe restart).",
         "2 RETRIEVE by lawful judge: grep or hee4db first; `habitat-ctx ask` (FTS and embeddings, works on facets and v4); "
         "local BAML YES/NO for close calls (set num_ctx); Jev only for the boundary-cleared corpus. "
-        "Ask existence first, separate questions; read the top 4 (>=70% hit) or top 5 (>=80%; conformal, held-out n=40); `--judge` re-checks the top 5 locally (+2 in the top 3 on v3, ~4 s). Log skips. "
+        "Ask existence first, separate questions; read the top 3 (>=70% hit) or top 4 (>=80%; conformal, held-out n=40); `--judge` re-checks the top 5 locally (+2 in the top 3 on v3, ~4 s). Log skips. "
         "No v4 text to Jev, not even a summary.",
         "3 ACT SAFELY: engine work in a desktop session in the repo (a refusal means the wrong place, don't route around it). "
         "Use quoted `bash -s` heredocs; no nested bash -c; never pkill -f. Plant a failing control before trusting a green. "

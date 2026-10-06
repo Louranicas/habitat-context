@@ -15,7 +15,8 @@ def opt(name, default):
     if name in args:
         i = args.index(name); v = args[i + 1]; del args[i:i + 2]; return v
     return default
-min1, min5 = int(opt("--min-hit1", 18)), int(opt("--min-hit5", 31))
+# Ratchet: floors = the v5 baseline (19 / 35) minus 2. Raise them when a better index lands; never lower them.
+min1, min5 = int(opt("--min-hit1", 17)), int(opt("--min-hit5", 33))
 out_json = opt("--json", None)
 if "--with-labels" in args:  # add labels recorded in real use (habitat-ctx label) to the on-topic set
     args.remove("--with-labels")

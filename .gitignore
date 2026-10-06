@@ -4,3 +4,4 @@
 elig_check.py
 __pycache__/
 *.version
+d2q-cache.db*

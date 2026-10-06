@@ -31,7 +31,11 @@ PRIORITY = {"herdr.habitat.vault", "herdr-engineering-engine-v4.vault", "jev.vau
             "herdr-habitat-orchistration.vault", "toolshed.vault"}
 FENCED = ("herdr-engineering-engine-v3.vault",)
 MAX_SECTION = 2000
-BUILD_VERSION = "4"  # v4: + one note card per note (title, opening summary, heading outline); v3: contextual chunks, body FTS
+BUILD_VERSION = "5"  # v5: + doc2query rows (local model: 5 plain-language questions per note, cached by sha); v4 note cards; v3 contextual chunks, body FTS
+# Held-out (n=40, 2026-10-06): v3 20/28/33/35, v4 21/29/33/35, v4+doc2query 21/31/35/36 @1/3/5/10; misses 5 -> 4.
+D2Q_VAULTS = {"herdr.habitat.vault", "jev.vault", "toolshed.vault", "herdr-habitat-orchistration.vault", "herdr-engineering-engine-v4.vault"}
+D2Q_MODEL = "gemma4:12b"
+D2Q_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "d2q-cache.db")  # builder-only writer
 FTS_COLS = "body"   # held-out (n=40, 2026-10-06): body-only FTS 14/29/30 @1/3/5; (ctx,body) 13/24/25; (ctx,body) ctx=2 10/17/21
 
 
@@ -70,6 +74,50 @@ def embed(texts, port):
                                      {"Content-Type": "application/json"})
         out += [d["embedding"] for d in json.load(urllib.request.urlopen(req, timeout=600))["data"]]
     return out
+
+
+def d2q_questions(title, text, port):
+    """Five plain-language questions the note answers (local model; bridges colloquial questions to
+    metaphorical titles such as 'Dark factory readiness')."""
+    body = {"model": D2Q_MODEL, "temperature": 0.3, "max_tokens": 220, "reasoning_effort": "none",
+            "messages": [{"role": "user", "content": "Write 5 short questions a newcomer might ask that this note answers. "
+                          "Use plain everyday wording, not the note's own jargon or title words. One question per line, no numbering."
+                          "\n\nTitle: " + title + "\n\n" + text[:2500]}]}
+    req = urllib.request.Request(EMB_URL.format(port=port).replace("/v1/embeddings", "/v1/chat/completions"),
+                                 json.dumps(body).encode(), {"Content-Type": "application/json"})
+    out = json.load(urllib.request.urlopen(req, timeout=180))["choices"][0]["message"]["content"]
+    return [q.strip(" -*0123456789.") for q in out.splitlines() if len(q.strip()) > 12][:5]
+
+
+def d2q_for(changed, port):
+    """{rel: [questions]} for changed notes in D2Q_VAULTS, from the sha-keyed cache or the local model."""
+    import concurrent.futures as cf
+    cache = turso.connect(D2Q_CACHE)
+    cache.execute("create table if not exists d2q(path text, sha text, questions text, primary key(path, sha))")
+    want = [(rel, f, sha) for rel, f, sha in changed if rel.split("/", 1)[0] in D2Q_VAULTS]
+    have = {}
+    for rel, f, sha in want:
+        row = cache.execute("select questions from d2q where path=? and sha=?", (rel, sha)).fetchone()
+        if row:
+            have[rel] = json.loads(row[0])
+    todo = [(rel, f, sha) for rel, f, sha in want if rel not in have]
+
+    def gen(x):
+        rel, f, sha = x
+        try:
+            return rel, sha, d2q_questions(os.path.splitext(os.path.basename(rel))[0], open(f, errors="replace").read(), port)
+        except Exception:
+            return rel, sha, None
+    with cf.ThreadPoolExecutor(3) as ex:
+        for rel, sha, qs in ex.map(gen, todo):
+            if qs:
+                have[rel] = qs
+                cache.execute("insert or replace into d2q values(?,?,?)", (rel, sha, json.dumps(qs)))
+    cache.commit()
+    cache.close()
+    del cache
+    print(f"doc2query: {len(want)} notes, {len(want) - len(todo)} cached, {len(todo)} generated", flush=True)
+    return have
 
 
 def jev_eligible(rel_paths):
@@ -147,6 +195,7 @@ def main():
     print(f"notes={len(files)} changed={len(changed)} removed={len(gone)}", flush=True)
     elig = jev_eligible([c[0] for c in changed]) if changed else {}
     t0 = time.time(); rows = []
+    d2q = d2q_for(changed, a.port) if not a.no_embed else {}
     for rel, f, sha in changed:
         vault = rel.split("/", 1)[0]
         cur.execute("delete from sections where path=?", (rel,))
@@ -154,6 +203,9 @@ def main():
         text = open(f, errors="replace").read()
         rows.append([vault, rel, "[note]", note_card(title, text), sha, int(bool(elig.get(rel))), None,
                      f"{vault.replace('.vault', '')} > {title} / note summary"])
+        for q in d2q.get(rel, []):
+            rows.append([vault, rel, "[q] " + q[:80], q, sha, int(bool(elig.get(rel))), None,
+                         f"{vault.replace('.vault', '')} > {title} / likely question"])
         for head, body in sections_of(text):
             ctx = f"{vault.replace('.vault', '')} > {title} / {head}"
             rows.append([vault, rel, head, body, sha, int(bool(elig.get(rel))), None, ctx])
