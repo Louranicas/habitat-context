@@ -63,7 +63,7 @@ cover only part of the problem:
 | `grep` over the vaults | exact, fast, trustworthy | no ranking; misses paraphrase; no "nothing matches" signal |
 | a long CLAUDE.md | always loaded | stale the moment state changes; costs tokens every turn |
 | Jev (typed judgment) | strong on the cleared corpus | must never see HEE v4 text (H-10a); advisory only |
-| MemPalace | 284k drawers of semantic memory | v3 drawers dominate recall; not scoped to the current habitat |
+| MemPalace | 284k drawers of semantic memory | drawers from earlier engine generations dominate recall; not scoped to the current habitat |
 | Obsidian search | good for a human | not callable by an agent, and leaves no receipt |
 
 habitat-context combines them. The brief is computed live, so it is never stale. Retrieval is ranked,
@@ -316,7 +316,7 @@ Embedded today: 7,482 of 26,309 sections, from six vaults:
 - toolshed;
 - orchestration.
 
-Fedora, diary, pi and agentic-coding-school are FTS only. **HEE v3 is fenced (V4-9) and never indexed.**
+Fedora, diary, pi and agentic-coding-school are FTS only. **Only the current engine generation (HEE v4) is indexed; earlier engine vaults are out of scope (V4-9).**
 
 ## How retrieval works
 
@@ -374,9 +374,9 @@ By question type:
 
 A question can carry more than one type, so n sums to more than 40.
 
-**How much to trust v5 over v3.** A paired bootstrap at n=40 on a deterministic harness gives:
+**How much to trust build 5 over build 3.** A paired bootstrap at n=40 on a deterministic harness gives:
 
-| Measure | v5 − v3 | 95% CI |
+| Measure | build 5 − build 3 | 95% CI |
 | --- | --- | --- |
 | @1 | −1 | [−5, +2] |
 | @3 | +2 | [0, +5] |
@@ -442,7 +442,7 @@ What the off-site pull copies:
 - **Files:**
   - HEE evidence, without its DBs;
   - handoffs;
-  - every vault except v3, excluding plugin `data.json`, `.trash` and `*.bak-*`;
+  - every current vault (earlier engine vaults are out of scope), excluding plugin `data.json`, `.trash` and `*.bak-*`;
   - the pstack checkout;
   - Firstmate data;
   - the latest engine and habitat backups.
@@ -560,7 +560,7 @@ sidecar and the generated `elig_check.py`.
 In production on both hosts. Current limitations:
 - **Abstention thresholds are provisional.** 0.53 was set on n=22. The judge-combined 0.40 is too
   aggressive: used alone it abstained wrongly on 10 of 40. More labels are needed.
-- **The @5 gain over v3 is not established** at n=40 (see the bootstrap above).
+- **The @5 gain over build 3 is not established** at n=40 (see the bootstrap above).
 - **Vague and "where" questions are the weakest:** hit@1 is 1/6 and 1/4.
 - **Four vaults are FTS only:** Fedora, diary, pi and agentic-coding-school are not embedded.
 - **SSH PATH.** Until `/etc/security/pam_env.conf` puts `~/.local/bin` first (a sudo change held for

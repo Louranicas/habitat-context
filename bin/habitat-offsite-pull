@@ -53,8 +53,9 @@ pull() { # <label> <remote path> <local subdir> [rsync args…]
 }
 pull evidence /mnt/storage-10tb/hee4-evidence/ hee4-evidence --exclude 'db/*.db*'
 pull handoffs /mnt/storage-10tb/handoffs/ handoffs
-# v3 is fenced (V4-9): never copied. Plugin data.json can hold API keys: never copied.
-pull vaults "$F/" vaults --exclude 'herdr-engineering-engine-v3.vault/' \
+# Only the current engine generation is copied; earlier engine vaults are out of scope (V4-9).
+# Plugin data.json can hold API keys: never copied.
+pull vaults "$F/" vaults --exclude 'herdr-engineering-engine-v[0-3].vault/' \
   --exclude '.obsidian/plugins/*/data.json' --exclude '.trash/' --exclude '*.bak-*'
 # pstack: Lauren Tan's upstream checkout plus local habitat additions (README line, git-excluded HABITAT-OPEN-ITEMS.md).
 pull pstack '~/cursor-plugins/pstack/' pstack --exclude '.git'

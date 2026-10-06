@@ -121,7 +121,7 @@ CHAT = os.environ.get("HABITAT_CTX_CHAT_URL", _OLLAMA + "/v1/chat/completions")
 JUDGE_MODEL = os.environ.get("HABITAT_CTX_JUDGE", "gemma4:12b")
 JUDGE_ABSTAIN_DIST = float(os.environ.get("HABITAT_CTX_JUDGE_ABSTAIN", "0.40"))  # provisional, see ask()
 # Split-conformal read-set sizes from the independent held-out set (n=40, index v5, 2026-10-06).
-# Recompute whenever the index or ranking changes (v3 was 4 / 5).
+# Recompute whenever the index or ranking changes (build 3 was 4 / 5).
 READ_K = {"70%": 3, "80%": 4}
 
 
@@ -405,7 +405,7 @@ def brief():
         "No v4 text to Jev, not even a summary.",
         "3 ACT SAFELY: engine work in a desktop session in the repo (a refusal means the wrong place, don't route around it). "
         "Use quoted `bash -s` heredocs; no nested bash -c; never pkill -f. Plant a failing control before trusting a green. "
-        "v3 fenced; single DB writers; commit only when asked; gate before commit. Verify gate files after installs.",
+        "HEE v4 only (earlier engine versions are out of scope, V4-9); single DB writers; commit only when asked; gate before commit. Verify gate files after installs.",
         "4 LEAVE IT BETTER: update the owning note and a dated ledger line; lessons to their one home (facet 11).",
         f"Ledger: {', '.join(f'{v} {k}' for k, v in sorted(status.items(), key=lambda x: -x[1])[:5])}. "
         f"Held for Luke: {', '.join(held[:12])}.",

@@ -4,7 +4,7 @@ questions written by an agent with no retrieval access, plus 8 off-topic).
 
   python3 tests/eval_heldout.py [--fts-only] [--min-hit1 N] [--min-hit5 N] [--json out.json] [extra ask args...]
 
-Exits 1 if hit@1 or hit@5 falls below the floors (defaults: the v3 baseline minus 2), so a change that
+Exits 1 if hit@1 or hit@5 falls below the floors (defaults: the build-3 baseline minus 2), so a change that
 quietly degrades retrieval fails loudly. Uses HABITAT_CTX_DB if set (point it at a copy to test builds).
 """
 import json, os, re, subprocess, sys, time, collections

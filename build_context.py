@@ -11,7 +11,7 @@ through an SSH local forward (compute only), and Jev eligibility from `jev-bound
   FTS index sections_fts on sections(body) (experimental index_method)
 
 Incremental: a note whose sha is unchanged keeps its rows and embeddings.
-v3 is fenced (V4-9) and never indexed.
+Only the current engine generation (HEE v4) is indexed; earlier engine vaults are out of scope (V4-9).
 """
 import argparse, glob, hashlib, json, os, re, shutil, subprocess, sys, time, urllib.request
 
@@ -29,10 +29,18 @@ EMB_MODEL = "qwen3-embedding:0.6b"
 # Vaults whose sections are embedded; every other vault gets full-text search only.
 PRIORITY = {"herdr.habitat.vault", "herdr-engineering-engine-v4.vault", "jev.vault", "turso.vault",
             "herdr-habitat-orchistration.vault", "toolshed.vault"}
-FENCED = ("herdr-engineering-engine-v3.vault",)
+ENGINE_VAULT = re.compile(r"herdr-engineering-engine-v(\d+)\.vault")
+
+
+def out_of_scope(path):
+    """True for a vault of an earlier engine generation than v4 (V4-9): never indexed."""
+    m = ENGINE_VAULT.search(path)
+    return bool(m) and int(m.group(1)) < 4
+
+
 MAX_SECTION = 2000
-BUILD_VERSION = "5"  # v5: + doc2query rows (local model: 5 plain-language questions per note, cached by sha); v4 note cards; v3 contextual chunks, body FTS
-# Held-out (n=40, 2026-10-06): v3 20/28/33/35, v4 21/29/33/35, v4+doc2query 21/31/35/36 @1/3/5/10; misses 5 -> 4.
+BUILD_VERSION = "5"  # build 5: + doc2query rows (local model: 5 plain-language questions per note, cached by sha); build 4: note cards; build 3: contextual chunks, body FTS
+# Held-out (n=40, 2026-10-06): build 3 20/28/33/35, build 4 21/29/33/35, build 4 + doc2query 21/31/35/36 @1/3/5/10; misses 5 -> 4.
 D2Q_VAULTS = {"herdr.habitat.vault", "jev.vault", "toolshed.vault", "herdr-habitat-orchistration.vault", "herdr-engineering-engine-v4.vault"}
 D2Q_MODEL = "gemma4:12b"
 D2Q_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "d2q-cache.db")  # builder-only writer
@@ -201,7 +209,7 @@ def main():
     con.commit()
     have = dict(cur.execute("select path, sha from notes").fetchall())
     files = [f for f in glob.glob(os.path.join(SNAP, "*.vault", "**", "*.md"), recursive=True)
-             if not any(x in f for x in FENCED) and "/.obsidian/" not in f and "/.trash/" not in f
+             if not out_of_scope(f) and "/.obsidian/" not in f and "/.trash/" not in f
              and "/_sources/" not in f]  # raw doc captures duplicate "90 Source Docs" (measured noise)
     changed, seen, current_sha = [], set(), {}
     for f in files:
