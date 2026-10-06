@@ -1,0 +1,14 @@
+[Unit]
+Description=Loopback forward to the desktop's ollama for habitat-ctx embeddings (R-095)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+# Laptop 127.0.0.1:11435 -> desktop 127.0.0.1:11434 (compute only). habitat-ctx falls back to a
+# per-question tunnel, then to FTS-only, if this is down.
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:11435:127.0.0.1:11434 desktop-native-tail
+Restart=always
+RestartSec=20
+
+[Install]
+WantedBy=default.target

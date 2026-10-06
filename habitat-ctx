@@ -148,6 +148,32 @@ def ask(question, k=5, jev_only=False, scope=None):
     print(text)
     receipt(c, "ask", question, text, items)
 
+PROBE = r"""
+fail=$(systemctl --user --failed --no-legend 2>/dev/null | awk '{print $2}' | grep -v xdg-document-portal | tr '\n' ' ')
+grep -q jev_axi_door "$HOME/.local/bin/jev-axi" 2>/dev/null && door=ok || door=BROKEN
+hee=$(systemctl --user is-active hee4.service 2>/dev/null)
+head=$(git -C "$HOME/herdr-engineering-engine-v4" rev-parse --short HEAD 2>/dev/null)
+dirty=$(git -C "$HOME/herdr-engineering-engine-v4" status --porcelain 2>/dev/null | wc -l)
+lav=$("$HOME/.local/bin/lavish-guard" 2>/dev/null | grep -o 'verdict=[A-Z]*')
+printf '{"failed_units":"%s","jev_door":"%s","hee4":"%s","hee4_head":"%s","hee4_dirty":%s,"lavish":"%s"}\n' "$fail" "$door" "$hee" "$head" "${dirty:-0}" "${lav#verdict=}"
+"""
+
+
+def live_probe(c, timeout=4):
+    """One read-only ssh probe (script on stdin, never a nested -c string). Cache it; fall back to the cache."""
+    import subprocess
+    try:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", os.environ.get("HABITAT_HOST", "desktop-native-tail"), "bash", "-s"],
+                           input=PROBE, capture_output=True, text=True, timeout=timeout)
+        data = json.loads(r.stdout.strip().splitlines()[-1])
+        data["at"] = time.strftime("%H:%M")
+        c.execute("insert or replace into meta values('live_probe', ?)", (json.dumps(data),))
+        c.commit()
+        return data, "live"
+    except Exception:
+        row = c.execute("select value from meta where key='live_probe'").fetchone()
+        return (json.loads(row[0]), "cached") if row else (None, "unavailable")
+
 
 def brief():
     c = con()
@@ -180,8 +206,14 @@ def brief():
         "4 LEAVE IT BETTER: update the owning note and a dated ledger line; lessons to their one home (facet 11).",
         f"Ledger: {', '.join(f'{v} {k}' for k, v in sorted(status.items(), key=lambda x: -x[1])[:5])}. "
         f"Held for Luke: {', '.join(held[:12])}.",
-        "Blockers: Jev door clobbered, needs Luke's restore; HEE patch queue awaits a desktop session; second off-site copy needs a credential.",
     ]
+    lp, how = live_probe(c)
+    if lp:
+        lines.append(f"LIVE ({how} {lp.get('at','?')}): jev door {lp['jev_door']}; hee4 {lp['hee4']} at {lp['hee4_head']} "
+                     f"with {lp['hee4_dirty']} uncommitted files; lavish-guard {lp['lavish'] or '?'}; "
+                     f"failing units: {lp['failed_units'].strip() or 'none'}.")
+    else:
+        lines.append("LIVE: desktop unreachable and no cached probe; check `ssh desktop-native-tail` before acting.")
     text = "\n".join(lines)
     print(text)
     receipt(c, "brief", "", text, [])
