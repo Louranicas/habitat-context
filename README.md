@@ -51,6 +51,7 @@ The @3 gain is plausible. The @5 gain is not established. Grow the set with `hab
 | `build_context.py` | Incremental, generation-published build. Index v5 is: contextual section embeddings, plus note cards, plus doc2query rows (cached by sha in `d2q-cache.db`), with FTS on the body. |
 | `bin/habitat-context-refresh` | Laptop: opens its own embedding tunnel. Desktop: uses local Ollama. |
 | `bin/habitat-offsite-pull` | Laptop: off-site git mirrors and snapshots (R-060). |
+| `bin/habitat-friday-push` | Laptop: one-off GitHub push (timer: Fri 2026-10-09 09:17). Fast-forward only, branches only, no tags. Refuses placeholder authors and token-like added lines. HEE publishes only its newest PASS `cut-check` commit. Test it with `HABITAT_PUSH_DRYRUN=1`. |
 | `systemd/` (laptop) | Pull timer, refresh drop-in, persistent embedding forward. |
 | `systemd/desktop/` | Nightly refresh timer. |
 

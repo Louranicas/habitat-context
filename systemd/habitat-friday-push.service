@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish the habitat's own repos to GitHub from the laptop (Luke: push on Friday 2026-10-09)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/habitat-friday-push
+TimeoutStartSec=60min
+Nice=10

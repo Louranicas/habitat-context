@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# habitat-friday-push: publish the habitat's own repos to GitHub from the laptop (Luke, 2026-10-07:
+# "commit locally we can push on friday"). The laptop holds the GitHub credential; the desktop holds
+# none, by design. It pushes from the off-site mirrors, which are refreshed first.
+#
+# Refuses a repo, and pushes nothing for it, when any of these holds:
+#   - GitHub's tip is not an ancestor of ours (no force, ever)
+#   - a commit to be published carries a placeholder author (example.com)
+#   - an added line looks like a credential
+#   - (HEE v4 only) the commit has no PASS cut record: HEE publishes only its newest commit whose
+#     `just cut-check` (which includes tools/push-scan) passed, read from the desktop's ~/.cache/hee4-cut.
+# Branches only: tags are a release decision (`just cut-check`), never pushed here.
+# Set HABITAT_PUSH_DRYRUN=1 to run every check and `git push --dry-run` without publishing.
+# Last line: `push verdict=PASS|FAIL ...`; exit 0 or 1.
+set -uo pipefail
+DEST=${HABITAT_OFFSITE:-$HOME/Backups/herdr-habitat-offsite}
+DRY=${HABITAT_PUSH_DRYRUN:-0}
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+LOG="$DEST/logs/push-$STAMP.log"
+mkdir -p "$DEST/logs" || exit 1
+exec > >(tee -a "$LOG") 2>&1
+fail=0; note() { echo "step=$1 rc=$2${3:+ $3}"; [ "$2" = 0 ] || fail=$((fail + 1)); }
+
+# <mirror name> <GitHub repo> <branch> [cut]. "cut" = publish only a cut-checked commit. Upstream checkouts (firstmate, cursor-plugins) are never ours to push.
+REPOS=(
+  "hee4 Louranicas/herdr-engineering-engine-v4 main cut"
+  "loom-lattice-habitat Louranicas/loom-lattice-habitat master"
+  "deep-diff-forge Louranicas/deep-diff-forge main"
+)
+HOST=${HABITAT_HOST:-desktop-native-tail}
+# Full shas whose <sha12>/cut-check.json says PASS, newest record first by mtime (read-only over SSH).
+cut_passes() {
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOST" bash -s <<'EOF'
+for f in $(ls -1t ~/.cache/hee4-cut/*/cut-check.json 2>/dev/null); do
+  python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))
+if d.get("verdict")=="PASS" and d.get("sha"): print(d["sha"])' "$f" 2>/dev/null
+done
+EOF
+}
+SECRET='(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+
+# 1. Fresh mirrors: publish exactly what the desktop holds now.
+if [ "${HABITAT_PUSH_SKIP_PULL:-0}" = 1 ]; then echo "step=pull skipped=1"
+else "$HOME/.local/bin/habitat-offsite-pull" >/dev/null; note pull $?; fi
+if [ "$fail" != 0 ]; then echo "push verdict=FAIL reason=pull_failed log=$LOG"; exit 1; fi
+
+for entry in "${REPOS[@]}"; do
+  read -r name gh branch cut <<< "$entry"
+  m="$DEST/git/$name.git"; url="https://github.com/$gh.git"
+  ours=$(git -C "$m" rev-parse --verify -q "refs/heads/$branch") || { note "$name:local" 1 "no_branch=$branch"; continue; }
+  if [ "${cut:-}" = cut ]; then
+    head=$ours; ours=""
+    for c in $(cut_passes); do
+      git -C "$m" merge-base --is-ancestor "$c" "$head" 2>/dev/null && { ours=$c; break; }
+    done
+    [ -n "$ours" ] || { note "$name:cut" 1 "no_PASS_cut_record_on_${branch}"; continue; }
+    [ "$ours" = "$head" ] || echo "step=$name:cut note=publishing_cut_${ours:0:12}_not_head_${head:0:12}"
+  fi
+  theirs=$(git ls-remote "$url" "refs/heads/$branch" | cut -f1)
+  [ -n "$theirs" ] || { note "$name:remote" 1 "no_remote_branch=$branch"; continue; }
+  if [ "$theirs" = "$ours" ]; then note "$name" 0 "up_to_date=${ours:0:12}"; continue; fi
+  git -C "$m" cat-file -e "$theirs^{commit}" 2>/dev/null && git -C "$m" merge-base --is-ancestor "$theirs" "$ours" \
+    || { note "$name:ff" 1 "diverged github=${theirs:0:12} ours=${ours:0:12}"; continue; }
+  n=$(git -C "$m" rev-list --count "$theirs..$ours")
+  bad_auth=$(git -C "$m" log --format='%h %ae' "$theirs..$ours" | grep -i 'example\.com')
+  [ -z "$bad_auth" ] || { note "$name:authors" 1 "placeholder_author=$(echo "$bad_auth" | head -1 | tr ' ' :)"; continue; }
+  hits=$(git -C "$m" diff "$theirs" "$ours" | grep -E '^\+' | grep -c -E "$SECRET")
+  [ "$hits" = 0 ] || { note "$name:secrets" 1 "suspect_lines=$hits"; continue; }
+  git -C "$m" push --dry-run -q "$url" "$ours:refs/heads/$branch" || { note "$name:dry_run" 1; continue; }
+  if [ "$DRY" = 1 ]; then note "$name" 0 "would_push=$n ${theirs:0:12}..${ours:0:12}"; continue; fi
+  git -C "$m" push -q "$url" "$ours:refs/heads/$branch"; rc=$?
+  [ "$rc" = 0 ] && [ "$(git ls-remote "$url" "refs/heads/$branch" | cut -f1)" = "$ours" ] || rc=1
+  note "$name" "$rc" "pushed=$n ${theirs:0:12}..${ours:0:12}"
+done
+
+[ "$fail" = 0 ] && v=PASS || v=FAIL
+command -v notify-send >/dev/null && notify-send "habitat push: $v" "log: $LOG" 2>/dev/null
+echo "push verdict=$v dry_run=$DRY failed_steps=$fail log=$LOG"
+[ "$fail" = 0 ]
